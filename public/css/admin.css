@@ -1,0 +1,182 @@
+/* ===================== ส่วนผู้ดูแลระบบ — โครงหน้าและส่วนประกอบ ===================== */
+
+.admin-shell { display: flex; min-height: 100vh; min-height: 100dvh; }
+
+/* ------------------------------- แถบเมนูข้าง ------------------------------- */
+.sidebar {
+  width: 250px; flex: 0 0 250px; background: var(--surface); border-inline-end: 1px solid var(--line);
+  display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; height: 100dvh;
+  z-index: 40; transition: transform .22s ease;
+}
+.sidebar-head {
+  padding: 1rem; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: .7rem;
+}
+.sidebar-logo {
+  width: 40px; height: 40px; flex: none; border-radius: 10px; overflow: hidden;
+  background: linear-gradient(135deg, var(--brand-600), var(--brand-500));
+  display: grid; place-items: center; color: #fff; font-size: 1.15rem;
+}
+.sidebar-logo img { width: 100%; height: 100%; object-fit: cover; }
+.sidebar-title { font-weight: 800; font-size: .95rem; line-height: 1.25; }
+.sidebar-sub { font-size: .73rem; color: var(--muted); }
+
+.sidebar-nav { flex: 1 1 auto; overflow-y: auto; padding: .75rem .6rem; }
+.nav-group-label {
+  font-size: .72rem; font-weight: 800; color: var(--muted-2); text-transform: uppercase;
+  letter-spacing: .05em; padding: .8rem .7rem .3rem;
+}
+.nav-item {
+  display: flex; align-items: center; gap: .65rem; padding: .6rem .7rem; border-radius: 10px;
+  color: var(--ink-2); font-weight: 600; font-size: .93rem; text-decoration: none;
+  margin-bottom: 2px; transition: background .13s, color .13s; cursor: pointer;
+  border: none; background: none; width: 100%; text-align: right; font-family: inherit;
+}
+.nav-item:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
+.nav-item.active { background: var(--brand-600); color: #fff; }
+.nav-item.active .nav-count { background: rgba(255,255,255,.28); color: #fff; }
+.nav-icon { font-size: 1.05rem; width: 22px; text-align: center; flex: none; }
+.nav-count {
+  margin-inline-start: auto; background: var(--red-600); color: #fff; font-size: .72rem;
+  font-weight: 800; padding: .08rem .42rem; border-radius: 999px; min-width: 20px; text-align: center;
+}
+.sidebar-close {
+  display: none; flex: none; background: none; border: 1px solid var(--line-2);
+  border-radius: 10px; padding: .25rem .55rem; font-size: 1.25rem; line-height: 1;
+  cursor: pointer; color: var(--muted);
+}
+.sidebar-close:hover { background: var(--surface-2); color: var(--ink); }
+.sidebar-foot { padding: .75rem; border-top: 1px solid var(--line); }
+.user-chip {
+  display: flex; align-items: center; gap: .6rem; padding: .5rem; border-radius: 10px;
+  background: var(--surface-2); margin-bottom: .5rem;
+}
+.avatar {
+  width: 34px; height: 34px; flex: none; border-radius: 50%; background: var(--brand-600);
+  color: #fff; display: grid; place-items: center; font-weight: 800; font-size: .85rem;
+}
+
+/* --------------------------------- เนื้อหา --------------------------------- */
+.admin-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.topbar {
+  display: none; align-items: center; gap: .6rem; padding: .7rem 1rem;
+  background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 35;
+}
+.hamburger {
+  background: none; border: 1px solid var(--line-2); border-radius: 10px; padding: .4rem .6rem;
+  font-size: 1.15rem; cursor: pointer; color: var(--ink); line-height: 1;
+}
+.admin-content { padding: 1.25rem; flex: 1 1 auto; }
+.page-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+  flex-wrap: wrap; margin-bottom: 1.1rem;
+}
+.page-head h1 { margin: 0; font-size: 1.45rem; }
+.page-head .sub { color: var(--muted); font-size: .9rem; }
+
+.sidebar-backdrop { display: none; }
+
+/* --------------------------------- จอเล็ก --------------------------------- */
+@media (max-width: 1024px) {
+  .sidebar {
+    position: fixed; inset-block: 0; inset-inline-start: 0; transform: translateX(100%);
+    box-shadow: var(--shadow-lg);
+  }
+  html[dir="ltr"] .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: none !important; }
+  .topbar { display: flex; }
+  .sidebar-close { display: block; }
+  .sidebar-backdrop.show {
+    display: block; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 39;
+  }
+  .admin-content { padding: 1rem; }
+}
+@media (max-width: 560px) {
+  .admin-content { padding: .85rem; }
+  .page-head h1 { font-size: 1.2rem; }
+}
+
+/* --------------------------------- ตัวกรอง --------------------------------- */
+.filters {
+  display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end;
+  padding: .9rem 1.1rem; background: var(--surface-2); border-bottom: 1px solid var(--line);
+}
+.filters .field { margin: 0; min-width: 150px; flex: 1 1 150px; }
+.filters .field > label { font-size: .78rem; margin-bottom: .2rem; }
+.filters input, .filters select { min-height: 40px; padding-block: .4rem; }
+
+/* ------------------------------ แท็บ ------------------------------ */
+.tabs { display: flex; gap: .25rem; border-bottom: 2px solid var(--line); overflow-x: auto; margin-bottom: 1rem; }
+.tab {
+  padding: .6rem 1rem; border: none; background: none; font-family: inherit; font-size: .93rem;
+  font-weight: 700; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent;
+  margin-bottom: -2px; white-space: nowrap; border-radius: 8px 8px 0 0;
+}
+.tab:hover { color: var(--ink); background: var(--surface-2); }
+.tab.active { color: var(--brand-600); border-bottom-color: var(--brand-600); }
+
+/* ------------------------------ รายการคู่ ------------------------------ */
+.list-row {
+  display: flex; align-items: center; gap: .75rem; padding: .7rem .85rem;
+  border: 1px solid var(--line); border-radius: 10px; margin-bottom: .5rem; background: var(--surface);
+}
+.list-row:hover { border-color: var(--line-2); }
+
+/* ------------------------------ กราฟอย่างง่าย ------------------------------ */
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.chart text { font-family: var(--font); fill: var(--muted); font-size: 11px; }
+.chart .grid-line { stroke: var(--line); stroke-width: 1; }
+.chart .bar { fill: var(--brand-500); transition: fill .15s; }
+.chart .bar:hover { fill: var(--brand-700); }
+.legend { display: flex; gap: .9rem; flex-wrap: wrap; font-size: .82rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: .35rem; }
+.legend i { width: .7rem; height: .7rem; border-radius: 3px; display: inline-block; }
+
+/* ------------------------------ ตารางเลือกได้ ------------------------------ */
+table.data td .row-check { width: 18px; height: 18px; min-height: 18px; accent-color: var(--brand-600); cursor: pointer; }
+tr.is-selected { background: var(--brand-50) !important; }
+
+/* ------------------------------ แบ่งหน้า ------------------------------ */
+.pager { display: flex; gap: .4rem; align-items: center; justify-content: center; padding: .85rem; flex-wrap: wrap; }
+.pager .btn { min-width: 40px; }
+
+/* ------------------------------ กล่องรหัสผ่าน ------------------------------ */
+.credential-box {
+  background: var(--amber-50); border: 1px dashed var(--amber-500); border-radius: var(--radius-sm);
+  padding: .85rem 1rem; font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+.credential-box .code { font-size: 1.3rem; font-weight: 800; letter-spacing: .08em; color: var(--amber-700); }
+
+/* ------------------------------ หน้าเข้าสู่ระบบ ------------------------------ */
+.login-page {
+  min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 16px;
+  background: linear-gradient(135deg, var(--brand-700), var(--brand-500));
+}
+.login-card {
+  width: 100%; max-width: 420px; background: var(--surface); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); padding: 1.8rem 1.6rem; border: 1px solid var(--line);
+}
+.login-logo {
+  width: 64px; height: 64px; margin: 0 auto .8rem; border-radius: 16px; overflow: hidden;
+  background: linear-gradient(135deg, var(--brand-600), var(--brand-500));
+  display: grid; place-items: center; font-size: 1.8rem; color: #fff;
+}
+.login-logo img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ------------------------------ ใบเสร็จรับเงิน ------------------------------ */
+.receipt { background: #fff; color: #0f172a; padding: 1.5rem; border-radius: 8px; }
+.receipt h2, .receipt h3, .receipt p, .receipt td, .receipt th, .receipt div, .receipt span { color: #0f172a; }
+.receipt-head { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: .8rem; margin-bottom: 1rem; }
+.receipt table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.receipt table th, .receipt table td { padding: .5rem; border-bottom: 1px solid #cbd5e1; text-align: right; }
+.receipt table th { background: #f1f5f9; font-weight: 700; }
+.receipt-sign { display: flex; justify-content: space-around; margin-top: 2.5rem; gap: 1rem; flex-wrap: wrap; }
+.receipt-sign div { text-align: center; font-size: .85rem; min-width: 160px; }
+.receipt-sign .line { border-top: 1px dotted #0f172a; margin-bottom: .3rem; padding-top: 2rem; }
+
+@media print {
+  .admin-shell { display: block; }
+  .sidebar, .topbar, .no-print, .filters, .tabs { display: none !important; }
+  .admin-content { padding: 0; }
+  .receipt { padding: 0; }
+}

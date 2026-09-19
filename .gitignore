@@ -1,0 +1,26 @@
+# ข้อมูลระบบ (ฐานข้อมูล ไฟล์สลิป อีเมลที่รอส่ง)
+/data/
+/backups/
+
+# ค่าตั้งค่าที่เป็นความลับ
+.env
+.env.local
+.env.*.local
+
+# แพ็กเกจ
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json.bak
+
+# ไฟล์ชั่วคราวของระบบปฏิบัติการและโปรแกรมแก้ไข
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+
+# ไฟล์บันทึกและชั่วคราว
+*.log
+tmp/

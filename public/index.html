@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="th" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="ระบบแจ้งชำระเงินตามวัตถุประสงค์การจัดเก็บ โรงเรียนทุนวิทยาคม">
+<meta name="theme-color" content="#4f46e5">
+<title>ระบบแจ้งชำระเงิน — โรงเรียนทุนวิทยาคม</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap row-between">
+    <a class="brand" href="/" style="text-decoration:none">
+      <span class="brand-logo" id="brandLogo">🏫</span>
+      <span class="brand-text">
+        <span class="brand-title" id="schoolName">โรงเรียนทุนวิทยาคม</span>
+        <span class="brand-sub" id="systemTitle">ระบบแจ้งชำระเงินตามวัตถุประสงค์การจัดเก็บ</span>
+      </span>
+    </a>
+    <nav class="nav">
+      <a href="/" class="active">รายการชำระเงิน</a>
+      <a href="/check.html">ตรวจสอบสลิป</a>
+      <a href="/my.html">ประวัติของฉัน</a>
+      <a href="/admin">ผู้ดูแลระบบ</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" style="padding-block:1.5rem 2rem">
+  <div class="stack">
+    <section class="card">
+      <h1 style="margin-bottom:.35rem">รายการจัดเก็บที่เปิดรับชำระ</h1>
+      <p class="muted" style="margin:0">
+        เลือกรายการที่ต้องการชำระ จากนั้นค้นหาชื่อของท่านในตาราง แล้วกดปุ่ม
+        <span class="badge badge-unpaid" style="vertical-align:middle">ยังไม่ชำระ</span>
+        เพื่อแนบสลิปการโอนเงิน
+      </p>
+    </section>
+
+    <div id="content">
+      <div class="loading"><span class="spinner"></span> กำลังโหลดข้อมูล...</div>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p id="contactNote" style="margin:0"></p>
+    <p style="margin:.35rem 0 0" class="tiny">
+      <button class="btn btn-ghost btn-sm" type="button" id="themeBtn">สลับโหมดสว่าง/มืด</button>
+    </p>
+  </div>
+</footer>
+
+<script src="/js/common.js"></script>
+<script src="/js/public-home.js"></script>
+</body>
+</html>
