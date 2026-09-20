@@ -381,6 +381,11 @@ legend { font-weight: 700; font-size: .9rem; padding: 0 .4rem; color: var(--ink-
 .qr-box img { width: 100%; max-width: 250px; height: auto; }
 
 .site-footer { padding: 2rem 0; text-align: center; color: var(--muted); font-size: .85rem; }
+/* แถวปุ่มท้ายหน้า — ตัดบรรทัดเองเมื่อจอแคบ */
+.footer-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; align-items: center; }
+/* ลิงก์สำหรับเจ้าหน้าที่ — ไม่เด่นจนผู้ปกครองกดผิด แต่หาเจอเมื่อต้องการ */
+.staff-link { text-decoration: none; opacity: .75; }
+.staff-link:hover, .staff-link:focus-visible { opacity: 1; }
 
 /* --------------------------------- มือถือ --------------------------------- */
 @media (max-width: 720px) {

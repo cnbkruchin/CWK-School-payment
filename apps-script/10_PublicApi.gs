@@ -19,8 +19,15 @@ function publicConfig_() {
     allow_public_member_list: s.allow_public_member_list === '1',
     max_upload_mb: Math.min(Number(s.max_upload_mb) || 5, APP.MAX_SLIP_BYTES / 1024 / 1024),
     theme_color: s.theme_color,
-    app_version: APP.VERSION
+    app_version: APP.VERSION,
+    admin_url: adminUrl_()
   };
+}
+
+/** ลิงก์เข้าระบบผู้ดูแล (ว่างเมื่อยังไม่ได้เผยแพร่เว็บแอป) */
+function adminUrl_() {
+  var base = webAppUrl_();
+  return base ? base + (base.indexOf('?') >= 0 ? '&' : '?') + 'page=admin' : '';
 }
 
 function apiPublicConfig() {

@@ -91,6 +91,22 @@ ok('แจ้งชำระเงินผ่าน API ได้', sub.ok, sub
 const payJson = JSON.stringify(S.apiPayments({ token: T }));
 ok('API ผู้ดูแลไม่ส่ง file id ของ Drive ในรายการ', payJson.indexOf('slip_file_id') < 0);
 
+console.log('\n=== ลิงก์เข้าระบบผู้ดูแลบนหน้าสาธารณะ ===');
+{
+  const cfg = S.publicConfig_();
+  ok('ข้อมูลตั้งต้นมีลิงก์หน้าผู้ดูแล', !!cfg.admin_url, String(cfg.admin_url));
+  ok('ลิงก์ชี้ไปหน้าผู้ดูแล', /[?&]page=admin$/.test(cfg.admin_url), cfg.admin_url);
+
+  const html = S.doGet({ parameter: {} }).getContent();
+  ok('หน้าสาธารณะมีปุ่มสำหรับเจ้าหน้าที่', html.indexOf('id="adminLink"') >= 0);
+  ok('ฝังลิงก์มากับหน้าเลย ไม่ต้องเรียก API เพิ่ม', html.indexOf('page=admin') >= 0);
+
+  // เปิดลิงก์แล้วต้องได้หน้าเข้าสู่ระบบของผู้ดูแลจริง
+  const adminHtml = S.doGet({ parameter: { page: 'admin' } }).getContent();
+  ok('เปิดลิงก์แล้วได้หน้าผู้ดูแล', adminHtml.indexOf('"page":"admin"') >= 0);
+  ok('หน้าผู้ดูแลไม่มีข้อมูลรายการจัดเก็บติดไปด้วย', adminHtml.indexOf('"collections"') < 0);
+}
+
 console.log('\n=== เรียก API โดยไม่มีสิทธิ์ ===');
 ['apiMembers','apiCollections','apiPayments','apiSettings','apiUsers','apiDashboard','apiReport','apiExportReport','apiAuditLogs','apiGroups']
   .forEach(function (fn) {

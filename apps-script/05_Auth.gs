@@ -369,9 +369,11 @@ function resetPassword(payload) {
 }
 
 function webAppUrl_() {
-  try {
-    var u = ScriptApp.getService().getUrl();
-    if (u) return u;
-  } catch (e) { /* ยังไม่ได้ deploy */ }
-  return setting('web_app_url', '') || '';
+  return memoGet_('__webAppUrl', function () {
+    try {
+      var u = ScriptApp.getService().getUrl();
+      if (u) return u;
+    } catch (e) { /* ยังไม่ได้ deploy */ }
+    return setting('web_app_url', '') || '';
+  });
 }

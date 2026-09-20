@@ -30,8 +30,11 @@
 <footer class="site-footer no-print">
   <div class="wrap">
     <p id="contactNote" style="margin:0"></p>
-    <p style="margin:.35rem 0 0" class="tiny">
+    <p style="margin:.35rem 0 0" class="tiny footer-actions">
       <button class="btn btn-ghost btn-sm" type="button" id="themeBtn">สลับโหมดสว่าง/มืด</button>
+      <a class="btn btn-ghost btn-sm staff-link hidden" id="adminLink" href="#" target="_blank" rel="noopener">
+        🔐 สำหรับเจ้าหน้าที่
+      </a>
     </p>
   </div>
 </footer>
@@ -52,6 +55,18 @@ function applyConfig() {
   $('#schoolName').textContent = CONFIG.school_name;
   $('#systemTitle').textContent = CONFIG.system_title;
   $('#contactNote').textContent = CONFIG.contact_note || '';
+
+  // ลิงก์เข้าระบบผู้ดูแล — ซ่อนไว้เมื่อยังไม่ได้เผยแพร่เว็บแอป
+  var adminLink = $('#adminLink');
+  if (adminLink) {
+    if (CONFIG.admin_url) {
+      adminLink.href = CONFIG.admin_url;
+      adminLink.classList.remove('hidden');
+      adminLink.title = 'เข้าสู่ระบบผู้ดูแล (สำหรับเจ้าหน้าที่ของโรงเรียนเท่านั้น)';
+    } else {
+      adminLink.classList.add('hidden');
+    }
+  }
   if (CONFIG.school_logo) {
     $('#brandLogo').innerHTML = '';
     $('#brandLogo').appendChild(el('img', { src: CONFIG.school_logo, alt: 'ตราโรงเรียน' }));
