@@ -24,8 +24,8 @@ function migrate() {
 }
 
 const DEFAULT_SETTINGS = {
-  school_name: 'โรงเรียนทุนวิทยาคม',
-  school_short: 'ทุนวิทยาคม',
+  school_name: 'โรงเรียนจุนวิทยาคม',
+  school_short: 'จุนวิทยาคม',
   school_address: '',
   school_phone: '',
   school_logo: '',

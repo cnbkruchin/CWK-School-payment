@@ -49,18 +49,18 @@ function main() {
 
   const out = db.transaction(() => {
     /* ---------- ตั้งค่าโรงเรียน ---------- */
-    setSetting('school_address', '123 หมู่ 4 ตำบลทุนวิทยา อำเภอเมือง จังหวัดขอนแก่น 40000');
-    setSetting('school_phone', '043-123456');
+    setSetting('school_address', '123 หมู่ 4 อำเภอจุน จังหวัดพะเยา');
+    setSetting('school_phone', '054-123456');
 
     /* ---------- บัญชีรับโอน ---------- */
     db.prepare(
       `INSERT INTO bank_accounts (bank_name, account_name, account_number, branch, promptpay_id, is_default, sort_order)
        VALUES (?,?,?,?,?,1,0)`
-    ).run('ธนาคารกรุงไทย', 'โรงเรียนทุนวิทยาคม', '123-4-56789-0', 'สาขาขอนแก่น', '0812345678');
+    ).run('ธนาคารกรุงไทย', 'โรงเรียนจุนวิทยาคม', '123-4-56789-0', 'สาขาจุน', '0812345678');
     db.prepare(
       `INSERT INTO bank_accounts (bank_name, account_name, account_number, branch, is_default, sort_order)
        VALUES (?,?,?,?,0,1)`
-    ).run('ธนาคารออมสิน', 'โรงเรียนทุนวิทยาคม (กิจกรรม)', '020-1-23456-7', 'สาขาขอนแก่น');
+    ).run('ธนาคารออมสิน', 'โรงเรียนจุนวิทยาคม (กิจกรรม)', '020-1-23456-7', 'สาขาจุน');
 
     /* ---------- กลุ่ม ---------- */
     db.prepare('DELETE FROM groups').run();

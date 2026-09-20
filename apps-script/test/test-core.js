@@ -260,7 +260,7 @@ ok('ปลดล็อกได้', S.apiUnlockUser({ token: TOKEN2, id: lockUs
 ok('เข้าสู่ระบบได้หลังปลดล็อก', S.login({ username: 'locktest', password: 'Lock12345' }).ok);
 
 console.log('\n=== 17. ตั้งค่าและบัญชีรับโอน ===');
-const bank = unwrap(S.apiSaveBank({ token: TOKEN2, bank_name: 'ธนาคารกรุงไทย', account_name: 'โรงเรียนทุนวิทยาคม', account_number: '123-4-56789-0', promptpay_id: '0812345678', is_default: true }), 'เพิ่มบัญชี');
+const bank = unwrap(S.apiSaveBank({ token: TOKEN2, bank_name: 'ธนาคารกรุงไทย', account_name: 'โรงเรียนจุนวิทยาคม', account_number: '123-4-56789-0', promptpay_id: '0812345678', is_default: true }), 'เพิ่มบัญชี');
 ok('เพิ่มบัญชีรับโอนได้', !!bank);
 ok('ตรวจเลขพร้อมเพย์ผิดรูปแบบ', !S.apiSaveBank({ token: TOKEN2, bank_name: 'x', account_name: 'y', account_number: 'z', promptpay_id: '123' }).ok);
 const qr = unwrap(S.apiBankQr({ token: TOKEN2, id: bank.id, amount: 1650 }), 'สร้าง QR');
@@ -268,7 +268,7 @@ ok('สร้าง QR พร้อมเพย์ได้', qr && qr.payload.i
 const pqr = unwrap(S.apiPromptPay({ bank_id: bank.id, amount: 1650 }), 'QR สาธารณะ');
 ok('หน้าสาธารณะขอ QR ระบุยอดได้', pqr && pqr.payload.indexOf('54071650.00') > 0, pqr && pqr.payload);
 
-ok('บันทึกการตั้งค่าได้', S.apiSaveSettings({ token: TOKEN2, school_phone: '043-123456', mask_member_name: '1' }).ok);
+ok('บันทึกการตั้งค่าได้', S.apiSaveSettings({ token: TOKEN2, school_phone: '054-123456', mask_member_name: '1' }).ok);
 const masked = S.apiPublicCollection({ id: col.id }).data;
 ok('ปิดบังนามสกุลทำงาน', masked.members[0].name.indexOf('*') >= 0, masked.members[0].name);
 S.apiSaveSettings({ token: TOKEN2, mask_member_name: '0' });

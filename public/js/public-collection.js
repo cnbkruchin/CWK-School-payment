@@ -24,7 +24,7 @@ async function load(showSpinner = true) {
   if (showSpinner) box.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังโหลดข้อมูล...</div>';
   try {
     DATA = await api(`/api/public/collections/${encodeURIComponent(COLLECTION_ID)}`);
-    document.title = `${DATA.collection.name} — ${CONFIG.school_name || 'โรงเรียนทุนวิทยาคม'}`;
+    document.title = `${DATA.collection.name} — ${CONFIG.school_name || 'โรงเรียนจุนวิทยาคม'}`;
     render();
   } catch (e) {
     box.innerHTML = '';

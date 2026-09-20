@@ -21,7 +21,7 @@ const col = S.apiSaveCollection({ token: T, name: 'เงินบำรุง�
   items: [{ name: 'ค่าบำรุงการศึกษา', amount: 1200 }] }).data;
 S.apiAssign({ token: T, collection_id: col.id, mode: 'all' });
 S.apiSetCollectionStatus({ token: T, id: col.id, status: 'open' });
-S.apiSaveBank({ token: T, bank_name: 'ธนาคารกรุงไทย', account_name: 'โรงเรียนทุนวิทยาคม', account_number: '123-4-56789-0', promptpay_id: '0812345678', is_default: true });
+S.apiSaveBank({ token: T, bank_name: 'ธนาคารกรุงไทย', account_name: 'โรงเรียนจุนวิทยาคม', account_number: '123-4-56789-0', promptpay_id: '0812345678', is_default: true });
 
 console.log('\n=== doGet: หน้าสาธารณะ ===');
 let out = S.doGet({ parameter: {} });
@@ -31,7 +31,7 @@ ok('มี <!DOCTYPE html>', html.indexOf('<!DOCTYPE html>') === 0);
 ok('แทรก CSS เข้ามาแล้ว', html.indexOf('--brand-600') > 0);
 ok('แทรกตัวช่วย JS เข้ามาแล้ว', html.indexOf('function thaiDate') > 0);
 ok('แทรกตัวสร้าง QR เข้ามาแล้ว', html.indexOf('var QR = (function') > 0);
-ok('ชื่อหน้าเป็นชื่อโรงเรียน', out.getTitle().indexOf('โรงเรียนทุนวิทยาคม') >= 0, out.getTitle());
+ok('ชื่อหน้าเป็นชื่อโรงเรียน', out.getTitle().indexOf('โรงเรียนจุนวิทยาคม') >= 0, out.getTitle());
 ok('ไม่มี <?= ?> ที่ยังไม่ถูกแทนค่า', html.indexOf('<?') < 0);
 
 // ตรวจข้อมูลที่ฝังมากับหน้า (ทำให้โหลดเร็ว)
@@ -40,7 +40,7 @@ ok('ฝังข้อมูลตั้งต้นมากับหน้า'
 let boot = null;
 try { boot = JSON.parse(bootMatch[1]); } catch (e) { /* ignore */ }
 ok('ข้อมูลตั้งต้นเป็น JSON ที่ถูกต้อง', !!boot);
-ok('มีการตั้งค่าโรงเรียนในข้อมูลตั้งต้น', boot && boot.config.school_name === 'โรงเรียนทุนวิทยาคม');
+ok('มีการตั้งค่าโรงเรียนในข้อมูลตั้งต้น', boot && boot.config.school_name === 'โรงเรียนจุนวิทยาคม');
 ok('มีรายการจัดเก็บมาพร้อมหน้าแรกแล้ว (ไม่ต้องเรียกซ้ำ)', boot && boot.collections && boot.collections.length === 1, JSON.stringify(boot && boot.collections && boot.collections.length));
 ok('ไม่มีข้อมูลลับหลุดมากับหน้า', html.indexOf('pin_hash') < 0 && html.indexOf('password_hash') < 0 && html.indexOf('pin_salt') < 0);
 

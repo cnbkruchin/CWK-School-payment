@@ -3,7 +3,7 @@
 
 const ADMIN = {
   user: null,
-  config: { school_name: 'โรงเรียนทุนวิทยาคม', school_logo: '' },
+  config: { school_name: 'โรงเรียนจุนวิทยาคม', school_logo: '' },
   pendingCount: 0,
   routes: {},
   current: '',

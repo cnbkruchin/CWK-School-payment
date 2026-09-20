@@ -2,7 +2,7 @@
   "name": "cwk-school-payment",
   "version": "1.0.0",
   "private": true,
-  "description": "ระบบแจ้งชำระเงินตามวัตถุประสงค์การจัดเก็บ โรงเรียนทุนวิทยาคม",
+  "description": "ระบบแจ้งชำระเงินตามวัตถุประสงค์การจัดเก็บ โรงเรียนจุนวิทยาคม",
   "main": "server.js",
   "type": "commonjs",
   "engines": {

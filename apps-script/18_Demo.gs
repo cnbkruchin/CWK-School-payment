@@ -53,16 +53,16 @@ function seedDemoSilent_(opts) {
 
   return withLock_(function () {
     settingsSet({
-      school_address: '123 หมู่ 4 ตำบลทุนวิทยา อำเภอเมือง จังหวัดขอนแก่น 40000',
-      school_phone: '043-123456'
+      school_address: '123 หมู่ 4 อำเภอจุน จังหวัดพะเยา',
+      school_phone: '054-123456'
     });
 
     if (!dbAll('BankAccounts').length) {
       dbInsertMany('BankAccounts', [
-        { bank_name: 'ธนาคารกรุงไทย', account_name: 'โรงเรียนทุนวิทยาคม', account_number: '123-4-56789-0',
-          branch: 'สาขาขอนแก่น', promptpay_id: '0812345678', is_default: true, is_active: true, sort_order: 0 },
-        { bank_name: 'ธนาคารออมสิน', account_name: 'โรงเรียนทุนวิทยาคม (กิจกรรม)', account_number: '020-1-23456-7',
-          branch: 'สาขาขอนแก่น', promptpay_id: '', is_default: false, is_active: true, sort_order: 1 }
+        { bank_name: 'ธนาคารกรุงไทย', account_name: 'โรงเรียนจุนวิทยาคม', account_number: '123-4-56789-0',
+          branch: 'สาขาจุน', promptpay_id: '0812345678', is_default: true, is_active: true, sort_order: 0 },
+        { bank_name: 'ธนาคารออมสิน', account_name: 'โรงเรียนจุนวิทยาคม (กิจกรรม)', account_number: '020-1-23456-7',
+          branch: 'สาขาจุน', promptpay_id: '', is_default: false, is_active: true, sort_order: 1 }
       ]);
     }
 
