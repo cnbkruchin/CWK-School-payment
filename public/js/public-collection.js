@@ -55,29 +55,13 @@ function render() {
     ]),
     el('h1', { style: 'margin:.2rem 0', text: c.name }),
     c.description ? el('p', { class: 'muted', style: 'margin:.2rem 0', text: c.description }) : null,
-    el('div', { class: 'row small muted', style: 'gap:1.1rem;margin-top:.4rem' }, [
+    // แถบข้อมูลรอบการจัดเก็บ — เน้นสีแดงและตัวใหญ่เพื่อให้เห็นกำหนดชำระชัดเจน
+    el('div', { class: 'collection-meta' }, [
       c.fiscal_year ? el('span', { text: `ปีการศึกษา ${c.fiscal_year}` }) : null,
       c.term ? el('span', { text: `ภาคเรียนที่ ${c.term}` }) : null,
       c.due_date ? el('span', { text: `กำหนดชำระภายใน ${thaiDate(c.due_date)}` }) : null,
     ]),
-
-    DATA.items.length ? el('div', { style: 'margin-top:.9rem' }, [
-      el('div', { class: 'label', text: 'รายละเอียดกิจกรรมย่อยของการจัดเก็บ' }),
-      el('div', { class: 'table-wrap' }, [
-        el('table', { class: 'data' }, [
-          el('tbody', {}, DATA.items.map((it) =>
-            el('tr', {}, [
-              el('td', {}, [
-                el('span', { text: it.name }),
-                it.is_optional ? el('span', { class: 'chip', style: 'margin-right:.4rem', text: 'เลือกได้' }) : null,
-                it.description ? el('div', { class: 'tiny muted', text: it.description }) : null,
-              ]),
-              el('td', { class: 'num', text: `${money(it.amount)} บาท` }),
-            ])),
-          ),
-        ]),
-      ]),
-    ]) : null,
+    // ไม่แสดงรายละเอียดกิจกรรมย่อยบนหน้าสาธารณะตามที่โรงเรียนกำหนด
   ]));
 
   /* ---- สรุปสถานะ ---- */
@@ -441,8 +425,30 @@ function showSuccess(r) {
     el('h3', { style: 'margin:.5rem 0 .2rem;color:var(--green-700)', text: 'แจ้งชำระเงินเรียบร้อยแล้ว' }),
     el('p', { class: 'muted small', style: 'margin:0 0 1rem', text: r.message }),
 
-    el('div', { class: 'card', style: 'background:var(--brand-50);border-color:var(--brand-200)' }, [
-      el('div', { class: 'small bold', style: 'color:var(--brand-700)', text: 'เลขอ้างอิงสำหรับตรวจสอบและดูสลิปภายหลัง' }),
+    r.new_pin ? el('div', { class: 'pin-issue' }, [
+      el('div', { class: 'pin-issue-head', text: '🔑 รหัส PIN ใหม่ของท่าน' }),
+      el('div', { class: 'pin-issue-code', text: r.new_pin }),
+      el('div', { class: 'pin-issue-warn' }, [
+        el('strong', { text: '⚠️ กรุณาถ่ายภาพหน้าจอหรือจดรหัสนี้เก็บไว้ทันที' }),
+        el('div', { style: 'margin-top:.3rem' }, [
+          'รหัสเดิมถูกยกเลิกแล้ว ระบบออกรหัสใหม่ทุกครั้งที่แจ้งชำระเงิน ',
+          el('br'),
+          'ใช้รหัสนี้สำหรับ ', el('strong', { text: 'ตรวจสอบสลิป' }), ' และ ',
+          el('strong', { text: 'ดูประวัติการชำระเงิน' }), ' รวมถึงการแจ้งชำระครั้งต่อไป',
+        ]),
+      ]),
+      el('button', {
+        class: 'btn btn-primary btn-block', type: 'button', style: 'margin-top:.75rem',
+        text: '📋 คัดลอกรหัส PIN',
+        onclick: async () => {
+          const ok = await copyText(r.new_pin);
+          toast(ok ? `คัดลอกรหัส ${r.new_pin} แล้ว` : 'คัดลอกไม่สำเร็จ กรุณาจดรหัสไว้', ok ? 'success' : 'warn');
+        },
+      }),
+    ]) : null,
+
+    el('div', { class: 'card', style: 'background:var(--brand-50);border-color:var(--brand-200);margin-top:1rem' }, [
+      el('div', { class: 'small bold', style: 'color:var(--brand-700)', text: 'เลขอ้างอิงของรายการนี้' }),
       el('div', { class: 'ref-code', id: 'refCodeText', text: r.ref_code }),
       el('button', {
         class: 'btn btn-sm', type: 'button', text: '📋 คัดลอกเลขอ้างอิง',
@@ -451,13 +457,6 @@ function showSuccess(r) {
           toast(ok ? `คัดลอกเลข ${r.ref_code} แล้ว` : 'คัดลอกไม่สำเร็จ กรุณาจดเลขไว้', ok ? 'success' : 'warn');
         },
       }),
-    ]),
-
-    el('div', { class: 'alert alert-warn', style: 'margin-top:1rem;text-align:right' }, [
-      el('div', {}, [
-        el('strong', { text: 'กรุณาบันทึกเลขอ้างอิงนี้ไว้ ' }),
-        'ท่านสามารถใช้เลข 4 หลักนี้ตรวจสอบสถานะและเรียกดูสลิปที่แนบไว้ได้ตลอดเวลาที่เมนู "ตรวจสอบสลิป"',
-      ]),
     ]),
 
     el('dl', { class: 'kv', style: 'margin-top:1rem;text-align:right' }, [
@@ -473,7 +472,7 @@ function showSuccess(r) {
     body,
     footer: [
       el('button', { class: 'btn', type: 'button', text: '🖨 พิมพ์หลักฐาน', onclick: () => window.print() }),
-      el('a', { class: 'btn', href: `/check.html?ref=${r.ref_code}`, text: 'ตรวจสอบสถานะ' }),
+      el('a', { class: 'btn', href: `/check.html?ref=${r.new_pin || r.ref_code}`, text: 'ตรวจสอบสถานะ' }),
       el('button', { class: 'btn btn-primary', type: 'button', text: 'เสร็จสิ้น', onclick: () => m.close() }),
     ],
   });

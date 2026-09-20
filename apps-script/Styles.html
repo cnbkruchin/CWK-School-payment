@@ -424,6 +424,33 @@ a.card:active .card-cta .btn { transform: translateY(1px); }
   .file-picker-title { font-size: 1.05rem; }
 }
 
+/* ---------- แถบข้อมูลรอบการจัดเก็บ — เน้นกำหนดชำระให้เห็นชัด ---------- */
+.collection-meta {
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-top: .6rem;
+  padding: .6rem .85rem; border-radius: 10px;
+  background: var(--red-50); border: 1px solid var(--red-500);
+  color: var(--red-700); font-weight: 700; font-size: 1.05rem;
+}
+@media (max-width: 720px) { .collection-meta { font-size: 1rem; gap: .35rem .9rem; } }
+
+/* ---------- กล่องแสดงรหัส PIN ชุดใหม่หลังแจ้งชำระเงิน ---------- */
+.pin-issue {
+  margin-top: .5rem; padding: 1rem; border-radius: 14px;
+  background: var(--amber-50); border: 2px solid var(--amber-500);
+}
+.pin-issue-head { font-weight: 700; color: var(--amber-700); font-size: 1.02rem; }
+.pin-issue-code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: clamp(2.4rem, 12vw, 3.4rem); font-weight: 800; letter-spacing: .18em;
+  line-height: 1.15; margin: .35rem 0 .5rem; color: var(--ink);
+  word-break: break-all;
+}
+.pin-issue-warn {
+  text-align: start; font-size: .92rem; color: var(--ink-2);
+  background: var(--surface); border-radius: 10px; padding: .6rem .75rem;
+}
+.pin-issue-warn strong { color: var(--red-600); }
+
 /* --------------------------------- มือถือ --------------------------------- */
 @media (max-width: 720px) {
   body { font-size: 15.5px; }

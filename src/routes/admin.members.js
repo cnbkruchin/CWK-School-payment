@@ -103,7 +103,7 @@ router.post('/', requireWrite, v.wrap((req, res) => {
   const email = v.str(req.body.email, 160);
   if (email && !v.isEmail(email)) v.fail(400, 'รูปแบบอีเมลไม่ถูกต้อง');
 
-  const pin = v.str(req.body.pin, 20) || generatePin();
+  const pin = v.str(req.body.pin, 20) || generatePin(6, db);
   const groupId = v.id(req.body.group_id) || resolveGroup(req.body.group_name);
 
   const info = db
@@ -192,7 +192,7 @@ router.post('/:id(\\d+)/reset-pin', requireWrite, v.wrap((req, res) => {
   const m = db.prepare('SELECT * FROM members WHERE id = ?').get(id);
   if (!m) v.fail(404, 'ไม่พบสมาชิกรายนี้');
 
-  const pin = v.str(req.body.pin, 20) || generatePin();
+  const pin = v.str(req.body.pin, 20) || generatePin(6, db);
   if (!/^\d{4,12}$/.test(pin)) v.fail(400, 'รหัสสมาชิกต้องเป็นตัวเลข 4-12 หลัก');
 
   db.prepare("UPDATE members SET pin_hash = ?, pin_plain = ?, pin_reset_at = datetime('now') WHERE id = ?")
@@ -220,9 +220,10 @@ router.post('/bulk/reset-pin', requireWrite, v.wrap((req, res) => {
   if (!targets.length) v.fail(400, 'ไม่พบสมาชิกที่ตรงกับเงื่อนไข');
 
   const upd = db.prepare("UPDATE members SET pin_hash = ?, pin_plain = ?, pin_reset_at = datetime('now') WHERE id = ?");
+  const bulkPins = new Set();
   const out = db.transaction(() =>
     targets.map((m) => {
-      const pin = generatePin();
+      const pin = generatePin(6, db, bulkPins);
       upd.run(bcrypt.hashSync(pin, PIN_ROUNDS), pin, m.id);
       return {
         id: m.id, member_code: m.member_code,
@@ -305,6 +306,7 @@ router.post('/import', requireWrite, (req, res, next) => {
   const findByCode = db.prepare('SELECT * FROM members WHERE member_code = ?');
   const findByName = db.prepare('SELECT * FROM members WHERE first_name = ? AND last_name = ?');
   const result = { created: 0, updated: 0, skipped: 0, errors: [], preview: [], credentials: [] };
+  const importPins = new Set();
   const seen = new Set();
 
   const run = db.transaction(() => {
@@ -347,7 +349,7 @@ router.post('/import', requireWrite, (req, res, next) => {
         }
 
         const code = r.member_code || generateMemberCode(db);
-        const pin = generatePin();
+        const pin = generatePin(6, db, importPins);
         if (!dryRun) {
           db.prepare(
             `INSERT INTO members (member_code, prefix, first_name, last_name, group_id, phone, email,

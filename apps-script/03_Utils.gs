@@ -290,8 +290,26 @@ function generateRefCode_() {
   return String(Date.now()).slice(-6) + randomDigits_(2);
 }
 
-function generatePin_(len) {
-  return randomDigits_(len || 6);
+/**
+ * สร้างรหัส PIN ที่ไม่ซ้ำกับสมาชิกคนอื่น
+ * ต้องไม่ซ้ำ เพราะหน้าตรวจสอบสลิปใช้ PIN ค้นหาสมาชิกโดยตรง
+ * @param {number} [len] จำนวนหลัก (ค่าตั้งต้น 6)
+ * @param {Object} [taken] ชุดรหัสที่กันไว้แล้ว ส่งต่อกันได้เมื่อออกรหัสหลายคนในรอบเดียว
+ */
+function generatePin_(len, taken) {
+  len = len || 6;
+  taken = taken || {};
+  var members = dbAll('Members');
+  for (var i = 0; i < members.length; i++) {
+    var v = members[i].pin_plain;
+    if (v) taken[String(v)] = true;
+  }
+  for (var t = 0; t < 300; t++) {
+    var pin = randomDigits_(len);
+    if (!taken[pin]) { taken[pin] = true; return pin; }
+  }
+  // สมาชิกมากจนสุ่มไม่ติด — เพิ่มความยาวอีกหนึ่งหลัก
+  return generatePin_(len + 1, taken);
 }
 
 function generateMemberCode_(prefix, taken) {

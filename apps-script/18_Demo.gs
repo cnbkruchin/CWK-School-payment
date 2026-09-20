@@ -80,6 +80,7 @@ function seedDemoSilent_(opts) {
     // สมาชิก
     var members = [];
     var seq = 1;
+    var demoPins = {};
     DEMO_GROUPS.forEach(function (gname, gi) {
       var isStaff = gname.indexOf('ครู') >= 0;
       var count = isStaff ? 5 : perGroup;
@@ -88,7 +89,7 @@ function seedDemoSilent_(opts) {
         var prefix = isStaff ? (male ? 'นาย' : 'นาง') : (gi >= 3 ? (male ? 'นาย' : 'นางสาว') : (male ? 'เด็กชาย' : 'เด็กหญิง'));
         var first = male ? demoPick_(DEMO_FIRST_M, seq) : demoPick_(DEMO_FIRST_F, seq);
         var last = demoPick_(DEMO_LAST, seq * 3 + gi);
-        var pin = generatePin_(6);
+        var pin = generatePin_(6, demoPins);
         var h = makePinHash_(pin);
         members.push({
           member_code: 'M' + padStart_(String(seq), 4, '0'),

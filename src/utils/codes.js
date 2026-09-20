@@ -36,9 +36,25 @@ function generateRefCode(db) {
   return String(Date.now()).slice(-6) + randomDigits(2);
 }
 
-/** รหัส PIN ของสมาชิก (ค่าเริ่มต้น 6 หลัก) */
-function generatePin(len = 6) {
-  return randomDigits(len, true);
+/**
+ * รหัส PIN ของสมาชิก (ค่าเริ่มต้น 6 หลัก)
+ * ต้องไม่ซ้ำกันระหว่างสมาชิก เพราะหน้าตรวจสอบสลิปใช้ PIN ค้นหาสมาชิกโดยตรง
+ * @param {number} [len] จำนวนหลัก
+ * @param {object} [db] ฐานข้อมูล — ส่งมาเพื่อตรวจไม่ให้ซ้ำของเดิม
+ * @param {Set<string>} [taken] รหัสที่กันไว้แล้วในรอบเดียวกัน
+ */
+function generatePin(len = 6, db = null, taken = null) {
+  const used = taken || new Set();
+  if (db) {
+    for (const r of db.prepare('SELECT pin_plain FROM members WHERE pin_plain IS NOT NULL').all()) {
+      if (r.pin_plain) used.add(String(r.pin_plain));
+    }
+  }
+  for (let i = 0; i < 300; i += 1) {
+    const pin = randomDigits(len, true);
+    if (!used.has(pin)) { used.add(pin); return pin; }
+  }
+  return generatePin(len + 1, db, used);
 }
 
 /** รหัสสมาชิกอัตโนมัติ เช่น M0001 */

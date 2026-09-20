@@ -4,9 +4,8 @@
 api('/api/public/config').then((cfg) => {
   $('#schoolName').textContent = cfg.school_name;
   $('#contactNote').textContent = cfg.contact_note || '';
-  if (!cfg.require_member_pin) {
-    $('#pinField').classList.add('hidden');
-  }
+  // ต้องใช้รหัส PIN เสมอ เพราะประวัติการชำระเป็นข้อมูลส่วนบุคคล
+  // (ไม่ขึ้นกับ require_member_pin ซึ่งคุมเฉพาะตอนแจ้งชำระเงิน)
   if (cfg.school_logo) {
     $('#brandLogo').innerHTML = '';
     $('#brandLogo').appendChild(el('img', { src: cfg.school_logo, alt: 'ตราโรงเรียน' }));

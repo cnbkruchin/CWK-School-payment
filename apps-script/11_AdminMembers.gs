@@ -316,9 +316,10 @@ function apiResetPin(payload) {
       var patches = [];
       var result = [];
       var now = new Date();
+      var takenPins = {};
 
       for (var t = 0; t < targets.length; t++) {
-        var pin = generatePin_(6);
+        var pin = generatePin_(6, takenPins);
         var h = makePinHash_(pin);
         patches.push({ id: targets[t].id, patch: { pin_hash: h.hash, pin_salt: h.salt, pin_plain: pin, pin_reset_at: now } });
         var g = groupsIndex[targets[t].group_id];
@@ -435,6 +436,7 @@ function apiImportMembers(payload) {
       var toInsert = [];
       var toUpdate = [];
       var usedCodes = {};
+      var usedPins = {};
       for (var uc in existingByCode) if (Object.prototype.hasOwnProperty.call(existingByCode, uc)) usedCodes[uc] = true;
 
       for (var rr = headerRow + 1; rr < table.length; rr++) {
@@ -510,7 +512,7 @@ function apiImportMembers(payload) {
         }
         usedCodes[newCode.toLowerCase()] = true;
 
-        var pin = generatePin_(6);
+        var pin = generatePin_(6, usedPins);
         var h = makePinHash_(pin);
         toInsert.push({
           member_code: newCode, prefix: prefix, first_name: first, last_name: last,

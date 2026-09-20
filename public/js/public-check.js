@@ -1,4 +1,4 @@
-/* ตรวจสอบสถานะและดูสลิปด้วยเลขอ้างอิง 4 หลัก */
+/* ตรวจสอบสถานะและดูสลิปด้วยรหัส PIN ล่าสุด (ใช้เลขอ้างอิงแทนก็ได้) */
 'use strict';
 
 api('/api/public/config').then((cfg) => {
@@ -99,7 +99,7 @@ function render(p) {
 $('#checkForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const ref = $('#refInput').value.replace(/\D/g, '');
-  if (ref.length < 4) return toast('กรุณากรอกเลขอ้างอิงอย่างน้อย 4 หลัก', 'warn');
+  if (ref.length < 4) return toast('กรุณากรอกรหัส PIN 6 หลักให้ครบถ้วน', 'warn');
   busy($('#checkBtn'), true, 'กำลังค้นหา...');
   await check(ref);
   busy($('#checkBtn'), false);

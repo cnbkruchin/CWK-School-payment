@@ -35,13 +35,15 @@
     <section class="card no-print">
       <h1 style="margin-bottom:.25rem">ตรวจสอบสถานะและดูสลิป</h1>
       <p class="muted small" style="margin-bottom:1rem">
-        กรอกเลขอ้างอิง 4 หลักที่ได้รับตอนแจ้งชำระเงิน เพื่อดูสถานะการตรวจสอบและเรียกดูสลิปที่แนบไว้
+        กรอก <strong>รหัส PIN ชุดล่าสุด</strong> ที่ได้รับตอนแจ้งชำระเงิน เพื่อดูสถานะการตรวจสอบและเรียกดูสลิปที่แนบไว้ล่าสุด<br>
+        <span class="tiny">(ใช้เลขอ้างอิงของรายการแทนก็ได้)</span>
       </p>
       <form id="checkForm" autocomplete="off">
         <div class="field">
-          <label class="req" for="refInput">เลขอ้างอิง</label>
+          <label class="req" for="refInput">รหัส PIN ล่าสุด (6 หลัก)</label>
           <input type="text" id="refInput" class="pin-input" inputmode="numeric" pattern="[0-9]*"
-                 maxlength="12" placeholder="0000" required aria-label="เลขอ้างอิง 4 หลัก">
+                 maxlength="12" placeholder="000000" required
+                 aria-label="รหัส PIN 6 หลักที่ได้รับตอนแจ้งชำระเงิน">
         </div>
         <button class="btn btn-primary btn-block btn-lg" type="submit" id="checkBtn">ตรวจสอบสถานะ</button>
       </form>

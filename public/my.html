@@ -35,7 +35,7 @@
     <section class="card no-print" id="loginCard" style="max-width:520px;margin-inline:auto">
       <h1 style="margin-bottom:.25rem">ประวัติการชำระเงินของฉัน</h1>
       <p class="muted small" style="margin-bottom:1rem">
-        กรอกรหัสสมาชิกและรหัส PIN เพื่อดูรายการที่ต้องชำระและประวัติการชำระทั้งหมดของท่าน
+        กรอก <strong>รหัสสมาชิก</strong> คู่กับ <strong>รหัส PIN ชุดล่าสุด</strong> เพื่อดูรายการที่ต้องชำระและประวัติการชำระทั้งหมดของท่าน
       </p>
       <form id="myForm" autocomplete="off">
         <div class="field">
@@ -43,9 +43,9 @@
           <input type="text" id="codeInput" required maxlength="40" placeholder="เช่น M0001" autocomplete="username">
         </div>
         <div class="field" id="pinField">
-          <label class="req" for="pinInput">รหัส PIN</label>
-          <input type="password" id="pinInput" inputmode="numeric" maxlength="12" placeholder="••••••" autocomplete="current-password">
-          <div class="hint">หากลืมรหัส PIN กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่</div>
+          <label class="req" for="pinInput">รหัส PIN ล่าสุด</label>
+          <input type="password" id="pinInput" inputmode="numeric" maxlength="12" placeholder="••••••" required autocomplete="current-password">
+          <div class="hint">ใช้รหัส PIN ชุดล่าสุดที่ได้รับตอนแจ้งชำระเงินครั้งล่าสุด — หากลืม กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่</div>
         </div>
         <button class="btn btn-primary btn-block btn-lg" type="submit" id="myBtn">ดูประวัติของฉัน</button>
       </form>

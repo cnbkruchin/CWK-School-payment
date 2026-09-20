@@ -253,6 +253,11 @@ function apiSubmitPayment(payload) {
     // บันทึกไฟล์ก่อนเข้าล็อก (ขั้นตอนนี้ช้าที่สุด)
     var saved = saveSlip_(payload.slip_base64, payload.slip_name, null);
 
+    // เตรียมรหัส PIN ชุดใหม่ไว้ล่วงหน้า — ทุกครั้งที่แจ้งชำระเงินจะได้รหัสใหม่
+    // เข้ารหัสไว้นอกล็อกเพราะใช้เวลาพอสมควร แล้วค่อยบันทึกตอนอยู่ในล็อก
+    var freshPin = generatePin_(6);
+    var freshPinHash = makePinHash_(freshPin);
+
     try {
       return withLock_(function () {
         // อ่านข้อมูลใหม่หลังได้ล็อก เผื่อมีผู้อื่นแก้ไขระหว่างนั้น
@@ -305,14 +310,27 @@ function apiSubmitPayment(payload) {
           receipt_no: autoApprove ? nextReceiptNo_() : ''
         });
 
+        // ออกรหัส PIN ใหม่แทนรหัสเดิมทันที เพื่อใช้ตรวจสอบสลิปครั้งนี้
+        dbUpdate('Members', a.member_id, {
+          pin_hash: freshPinHash.hash,
+          pin_salt: freshPinHash.salt,
+          pin_plain: freshPin,
+          pin_reset_at: now
+        });
+
         audit_(null, 'แจ้งชำระเงิน', {
           actorType: 'member', actorId: a.member_id, actorName: a.full_name,
           targetType: 'payment', targetId: record.id,
           detail: 'เลขอ้างอิง ' + refCode + ' ยอด ' + moneyStr_(amount) + ' บาท (' + a.collection_name + ')'
         });
+        audit_(null, 'ออกรหัส PIN ใหม่อัตโนมัติหลังแจ้งชำระเงิน', {
+          actorType: 'system', actorName: 'ระบบ',
+          targetType: 'member', targetId: a.member_id, detail: a.member_code
+        });
 
         return {
           ref_code: refCode,
+          new_pin: freshPin,
           amount: amount,
           status: autoApprove ? 'approved' : 'pending',
           status_label: autoApprove ? 'ชำระแล้ว' : 'รอตรวจสอบ',
@@ -322,7 +340,7 @@ function apiSubmitPayment(payload) {
           submitted_at: now.toISOString(),
           message: autoApprove
             ? 'บันทึกการชำระเงินเรียบร้อยแล้ว'
-            : 'แจ้งชำระเงินเรียบร้อยแล้ว กรุณาเก็บเลขอ้างอิงไว้เพื่อตรวจสอบสถานะและดูสลิปภายหลัง'
+            : 'แจ้งชำระเงินเรียบร้อยแล้ว กรุณาเก็บรหัส PIN ใหม่ไว้เพื่อตรวจสอบสถานะและดูสลิปภายหลัง'
         };
       });
     } catch (err) {
@@ -332,20 +350,51 @@ function apiSubmitPayment(payload) {
   });
 }
 
-/* ------------------------ ตรวจสอบสถานะด้วยเลขอ้างอิง ------------------------ */
+/* --------------- ตรวจสอบสถานะด้วยรหัส PIN (หรือเลขอ้างอิง) --------------- */
+
+/**
+ * ค้นหารายการแจ้งชำระจากรหัสที่ผู้ใช้กรอก
+ * ลำดับการค้นหา
+ *   1) ถือเป็นรหัส PIN ของสมาชิก -> คืนรายการแจ้งชำระล่าสุดของคนนั้น
+ *   2) ถ้าไม่ตรงสมาชิกคนใด ถือเป็นเลขอ้างอิงของรายการแจ้งชำระ
+ * รหัส PIN ไม่ซ้ำกันระหว่างสมาชิก (ดู generatePin_) การค้นหาจึงไม่กำกวม
+ */
+function findLookupPayment_(code) {
+  var member = dbFind('Members', function (x) { return String(x.pin_plain || '') === code; });
+  if (member) {
+    var mine = {};
+    dbWhere('Assignments', function (a) { return a.member_id === member.id; })
+      .forEach(function (a) { mine[a.id] = true; });
+
+    var list = dbWhere('Payments', function (p) {
+      return mine[p.assignment_id] && p.status !== 'cancelled';
+    });
+    if (!list.length) {
+      fail_('รหัสนี้ถูกต้อง แต่ยังไม่มีการแจ้งชำระเงินในระบบ');
+    }
+    list.sort(function (x, y) {
+      return new Date(y.created_at).getTime() - new Date(x.created_at).getTime();
+    });
+    return list[0];   // สลิปล่าสุด
+  }
+
+  var byRef = dbFind('Payments', function (x) { return x.ref_code === code && x.status !== 'cancelled'; });
+  if (byRef) return byRef;
+
+  fail_('ไม่พบรหัสนี้ในระบบ กรุณาตรวจสอบรหัส PIN ล่าสุดที่ได้รับตอนแจ้งชำระเงิน');
+}
 
 function apiLookupPayment(payload) {
   return apiCall_('lookupPayment', function () {
     payload = payload || {};
     var ref = str_(payload.ref, 12).replace(/\D/g, '');
-    if (!ref || ref.length < 4) fail_('กรุณากรอกเลขอ้างอิงให้ถูกต้อง');
+    if (!ref || ref.length < 4) fail_('กรุณากรอกรหัส PIN 6 หลักให้ครบถ้วน');
 
     if (!rateLimit_('lookup:' + ref, 25, 600)) {
       fail_('ค้นหาบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
     }
 
-    var p = dbFind('Payments', function (x) { return x.ref_code === ref && x.status !== 'cancelled'; });
-    if (!p) fail_('ไม่พบเลขอ้างอิงนี้ในระบบ กรุณาตรวจสอบอีกครั้ง');
+    var p = findLookupPayment_(ref);
 
     var a = dbGet('Assignments', p.assignment_id);
     var m = a ? dbGet('Members', a.member_id) : null;
@@ -384,18 +433,18 @@ function apiLookupSlip(payload) {
   return apiCall_('lookupSlip', function () {
     payload = payload || {};
     var ref = str_(payload.ref, 12).replace(/\D/g, '');
-    if (!ref || ref.length < 4) fail_('เลขอ้างอิงไม่ถูกต้อง');
+    if (!ref || ref.length < 4) fail_('รหัสไม่ถูกต้อง');
 
     if (!rateLimit_('slip:' + ref, 25, 600)) {
       fail_('เรียกดูบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
     }
 
-    var p = dbFind('Payments', function (x) { return x.ref_code === ref && x.status !== 'cancelled'; });
-    if (!p || !p.slip_file_id) fail_('ไม่พบสลิปของเลขอ้างอิงนี้');
+    var p = findLookupPayment_(ref);
+    if (!p.slip_file_id) fail_('รายการนี้ไม่มีไฟล์สลิปแนบไว้');
 
     var file = readSlipDataUrl_(p.slip_file_id);
     if (!file) fail_('ไม่พบไฟล์สลิปในระบบ');
-    return { ref_code: ref, data_url: file.data_url, mime: file.mime, size: file.size };
+    return { ref_code: p.ref_code, data_url: file.data_url, mime: file.mime, size: file.size };
   });
 }
 
@@ -407,6 +456,9 @@ function apiMemberHistory(payload) {
     var code = str_(payload.member_code, 40);
     var pin = str_(payload.pin, 20);
     if (!code) fail_('กรุณากรอกรหัสสมาชิก');
+    // ประวัติการชำระเป็นข้อมูลส่วนบุคคล จึงต้องใช้รหัส PIN ล่าสุดเสมอ
+    // ไม่ขึ้นกับการตั้งค่า require_member_pin ซึ่งคุมเฉพาะตอนแจ้งชำระเงิน
+    if (!pin) fail_('กรุณากรอกรหัส PIN ล่าสุดที่ได้รับตอนแจ้งชำระเงิน');
 
     if (!rateLimit_('history:' + code.toLowerCase(), 20, 600)) {
       fail_('ค้นหาบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
@@ -415,9 +467,8 @@ function apiMemberHistory(payload) {
     var m = dbFind('Members', function (x) {
       return String(x.member_code).toLowerCase() === code.toLowerCase() && x.is_active;
     });
-    var needPin = settingBool('require_member_pin');
-    if (!m || (needPin && (!pin || !verifyPin_(pin, m.pin_salt, m.pin_hash)))) {
-      fail_('รหัสสมาชิกหรือรหัสยืนยันไม่ถูกต้อง');
+    if (!m || !verifyPin_(pin, m.pin_salt, m.pin_hash)) {
+      fail_('รหัสสมาชิกหรือรหัส PIN ไม่ถูกต้อง หากเพิ่งแจ้งชำระเงิน กรุณาใช้รหัส PIN ชุดใหม่ล่าสุด');
     }
 
     var ledger = memberLedger_(m.id);
