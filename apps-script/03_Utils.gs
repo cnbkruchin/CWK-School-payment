@@ -214,13 +214,27 @@ function pepper_() {
  * Apps Script ไม่มี bcrypt จึงใช้วิธีมาตรฐานนี้แทน
  */
 function hashSecret_(plain, salt, iterations) {
-  var key = salt + '|' + pepper_();
-  var block = String(plain);
-  var digest = Utilities.computeHmacSha256Signature(block, key);
+  // PBKDF2-HMAC-SHA256 ความยาว 32 ไบต์ (1 บล็อก) ตาม RFC 2898
+  //   U1 = HMAC(รหัสผ่าน, เกลือ || INT32BE(1))
+  //   Ui = HMAC(รหัสผ่าน, U(i-1))
+  //   ผลลัพธ์ = U1 xor U2 xor ... xor Uc
+  // หมายเหตุ: Utilities.computeHmacSha256Signature รับเฉพาะ (String,String)
+  // หรือ (Byte[],Byte[]) เท่านั้น ผสมชนิดกันไม่ได้ จึงใช้เป็นไบต์ทั้งคู่ทุกรอบ
+  var pwBytes = utf8Bytes_(String(plain));
+  var block = utf8Bytes_(salt + '|' + pepper_()).concat([0, 0, 0, 1]);
+
+  var u = Utilities.computeHmacSha256Signature(block, pwBytes);
+  var out = u.slice();
   for (var i = 1; i < iterations; i++) {
-    digest = Utilities.computeHmacSha256Signature(digest, key);
+    u = Utilities.computeHmacSha256Signature(u, pwBytes);
+    for (var j = 0; j < out.length; j++) out[j] ^= u[j];
   }
-  return toHex_(digest);
+  return toHex_(out);
+}
+
+/** แปลงข้อความเป็นอาร์เรย์ไบต์แบบ UTF-8 */
+function utf8Bytes_(text) {
+  return Utilities.newBlob(String(text)).getBytes();
 }
 
 function makePasswordHash_(plain) {

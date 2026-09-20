@@ -30,6 +30,47 @@ ok('สร้างบัญชีผู้ดูแลคนแรก', inst.ad
 ok('มีกลุ่มตั้งต้น 7 กลุ่ม', S.dbAll('Groups').length === 7, String(S.dbAll('Groups').length));
 ok('รันซ้ำได้โดยไม่เสียหาย', (() => { const r2 = S.setupSilent_({}); return r2.sheetsCreated === 0 && r2.adminCount === 1; })());
 
+console.log('\n=== 1ข. การเข้ารหัสรหัสผ่าน (PBKDF2-HMAC-SHA256) ===');
+// เคยมีบั๊ก: เรียก computeHmacSha256Signature(Byte[], String) ซึ่ง Apps Script จริงไม่รับ
+// ทำให้ติดตั้งไม่สำเร็จ ชุดทดสอบนี้กันไม่ให้กลับมาอีก
+{
+  const h1 = S.hashSecret_('Secret123', 'salt-a', 50);
+  const h2 = S.hashSecret_('Secret123', 'salt-a', 50);
+  ok('เข้ารหัสแล้วได้ค่าเดิมเสมอ', h1 === h2, h1);
+  ok('ผลลัพธ์เป็นเลขฐานสิบหก 64 ตัว', /^[0-9a-f]{64}$/.test(h1), h1);
+  ok('เกลือต่างกันได้ค่าต่างกัน', h1 !== S.hashSecret_('Secret123', 'salt-b', 50));
+  ok('รหัสผ่านต่างกันได้ค่าต่างกัน', h1 !== S.hashSecret_('Secret124', 'salt-a', 50));
+  ok('จำนวนรอบต่างกันได้ค่าต่างกัน', h1 !== S.hashSecret_('Secret123', 'salt-a', 51));
+
+  const pw = S.makePasswordHash_('P@ssw0rd-ยาว-ไทย');
+  ok('ตรวจรหัสผ่านที่ถูกต้องผ่าน', S.verifyPassword_('P@ssw0rd-ยาว-ไทย', pw.salt, pw.hash));
+  ok('ตรวจรหัสผ่านที่ผิดไม่ผ่าน', !S.verifyPassword_('P@ssw0rd', pw.salt, pw.hash));
+
+  const pin = S.makePinHash_('123456');
+  ok('ตรวจรหัส PIN ที่ถูกต้องผ่าน', S.verifyPin_('123456', pin.salt, pin.hash));
+  ok('ตรวจรหัส PIN ที่ผิดไม่ผ่าน', !S.verifyPin_('123457', pin.salt, pin.hash));
+
+  // ตรวจว่าเป็น PBKDF2-HMAC-SHA256 ของจริง โดยเทียบกับ crypto ของ Node
+  const crypto = require('crypto');
+  const pepper = S.pepper_();
+  const cases = [['Secret123', 'salt-a', 1], ['Secret123', 'salt-a', 1000],
+                 ['รหัสผ่านภาษาไทย!', 'เกลือ-ไทย', 500], ['P@ssw0rd', 's', 2500]];
+  let same = 0;
+  cases.forEach(function (c) {
+    const ref = crypto.pbkdf2Sync(Buffer.from(c[0], 'utf8'),
+      Buffer.from(c[1] + '|' + pepper, 'utf8'), c[2], 32, 'sha256').toString('hex');
+    if (S.hashSecret_(c[0], c[1], c[2]) === ref) same++;
+  });
+  ok('ตรงกับ PBKDF2-HMAC-SHA256 มาตรฐาน (เทียบกับ Node crypto)', same === cases.length,
+    same + '/' + cases.length);
+
+  // ยืนยันว่าตัวจำลองบังคับลายเซ็นเหมือน Apps Script จริง
+  let rejected = false;
+  try { S.Utilities.computeHmacSha256Signature([1, 2, 3], 'key'); }
+  catch (e) { rejected = /ไม่ตรงกับลายเซ็นเมธอด/.test(e.message); }
+  ok('ตัวจำลองปฏิเสธลายเซ็น (Byte[],String) เหมือนของจริง', rejected);
+}
+
 console.log('\n=== 2. เข้าสู่ระบบ ===');
 let r = S.login({ username: 'admin', password: 'wrong' });
 ok('รหัสผ่านผิดถูกปฏิเสธ', !r.ok && /ไม่ถูกต้อง/.test(r.error), r.error);

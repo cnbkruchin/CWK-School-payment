@@ -92,7 +92,14 @@ class Sheet {
   getMaxColumns() { return Math.max(26, this.getLastColumn()); }
   getRange(a, b, c, d) {
     if (typeof a === 'string') throw new Error('A1 notation not supported in shim');
-    return new Range(this, a, b, c === undefined ? 1 : c, d === undefined ? 1 : d);
+    // ข้อผิดพลาดเดียวกับ Apps Script ของจริง
+    const numRows = c === undefined ? 1 : c;
+    const numCols = d === undefined ? 1 : d;
+    if (!(a >= 1)) throw new Error('Exception: แถวเริ่มต้นของช่วงต้องมีค่าอย่างน้อย 1');
+    if (!(b >= 1)) throw new Error('Exception: คอลัมน์เริ่มต้นของช่วงต้องมีค่าอย่างน้อย 1');
+    if (!(numRows >= 1)) throw new Error('Exception: จำนวนแถวในช่วงต้องมีค่าอย่างน้อย 1');
+    if (!(numCols >= 1)) throw new Error('Exception: จำนวนคอลัมน์ในช่วงต้องมีค่าอย่างน้อย 1');
+    return new Range(this, a, b, numRows, numCols);
   }
   getDataRange() { return new Range(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   appendRow(values) {
@@ -102,6 +109,8 @@ class Sheet {
   }
   deleteRows(start, num) {
     stats.sheetWrites++;
+    if (!(start >= 1)) throw new Error('Exception: ตำแหน่งแถวต้องมีค่าอย่างน้อย 1');
+    if (!(num >= 1)) throw new Error('Exception: จำนวนแถวที่จะลบต้องมีค่าอย่างน้อย 1');
     this._data.splice(start - 1, num);
     return this;
   }
@@ -232,21 +241,54 @@ class Blob {
   _buffer() { return this._bytes; }
 }
 
+/** ชื่อชนิดข้อมูลแบบที่ Apps Script ใช้ในข้อความผิดพลาด */
+function typeName(v) {
+  if (Array.isArray(v)) return 'number[]';
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (typeof v === 'string') return 'String';
+  if (typeof v === 'number') return 'Number';
+  if (typeof v === 'boolean') return 'Boolean';
+  return 'Object';
+}
+
+/** แปลง String (UTF-8) หรือ Byte[] แบบ signed ให้เป็น Buffer */
+function toBuf(v) {
+  if (typeof v === 'string') return Buffer.from(v, 'utf8');
+  return Buffer.from(v.map((b) => (b < 0 ? b + 256 : b)));
+}
+
 const Utilities = {
   DigestAlgorithm: { SHA_256: 'SHA-256', MD5: 'MD5', SHA_1: 'SHA-1' },
   Charset: { UTF_8: 'UTF-8', US_ASCII: 'US-ASCII' },
   MacAlgorithm: { HMAC_SHA_256: 'HMAC_SHA_256' },
   getUuid: () => crypto.randomUUID(),
-  computeDigest(alg, value /*, charset */) {
+  computeDigest(alg, value, charset) {
+    // Apps Script มี 3 ลายเซ็นเท่านั้น: (alg,Byte[]) | (alg,String) | (alg,String,Charset)
+    const isBytes = Array.isArray(value);
+    if (!isBytes && typeof value !== 'string') {
+      throw new Error(`พารามิเตอร์ (${typeName(value)}) ไม่ตรงกับลายเซ็นเมธอดสำหรับ Utilities.computeDigest`);
+    }
+    if (charset !== undefined && isBytes) {
+      throw new Error('พารามิเตอร์ (number[],String) ไม่ตรงกับลายเซ็นเมธอดสำหรับ Utilities.computeDigest');
+    }
     const h = crypto.createHash(alg === 'SHA-256' ? 'sha256' : alg === 'MD5' ? 'md5' : 'sha1');
-    if (typeof value === 'string') h.update(value, 'utf8');
-    else h.update(Buffer.from(value.map((b) => (b < 0 ? b + 256 : b))));
+    h.update(toBuf(value));
     return Array.from(h.digest()).map((b) => (b > 127 ? b - 256 : b));
   },
-  computeHmacSha256Signature(value, key) {
-    const keyBuf = typeof key === 'string' ? Buffer.from(key, 'utf8') : Buffer.from(key.map((b) => (b < 0 ? b + 256 : b)));
-    const valBuf = typeof value === 'string' ? Buffer.from(value, 'utf8') : Buffer.from(value.map((b) => (b < 0 ? b + 256 : b)));
-    const sig = crypto.createHmac('sha256', keyBuf).update(valBuf).digest();
+  computeHmacSha256Signature(value, key, charset) {
+    // Apps Script มี 3 ลายเซ็นเท่านั้น:
+    //   (String,String) | (String,String,Charset) | (Byte[],Byte[])
+    // การผสมชนิด เช่น (Byte[],String) จะถูกปฏิเสธเหมือนของจริง
+    const vKind = Array.isArray(value) ? 'number[]' : typeof value === 'string' ? 'String' : typeName(value);
+    const kKind = Array.isArray(key) ? 'number[]' : typeof key === 'string' ? 'String' : typeName(key);
+    const okPair = (vKind === 'String' && kKind === 'String') ||
+                   (vKind === 'number[]' && kKind === 'number[]' && charset === undefined);
+    if (!okPair) {
+      throw new Error(
+        `พารามิเตอร์ (${vKind},${kKind}) ไม่ตรงกับลายเซ็นเมธอดสำหรับ Utilities.computeHmacSha256Signature`);
+    }
+    const sig = crypto.createHmac('sha256', toBuf(key)).update(toBuf(value)).digest();
     return Array.from(sig).map((b) => (b > 127 ? b - 256 : b));
   },
   base64Encode(v) {
