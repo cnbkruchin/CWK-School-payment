@@ -161,6 +161,26 @@ module.exports = function publicRoutes({ lookupLimiter, submitLimiter }) {
       has_slip: !!p.slip_path,
     }));
 
+    const canSubmit = col.status === 'open' && !a.waived && a.outstanding > 0;
+
+    // สมาชิกที่ยังไม่เคยแจ้งชำระ — ออกรหัสชั่วคราวให้ใช้ครั้งแรก
+    // เพื่อให้แจ้งชำระได้เองโดยไม่ต้องรอผู้ดูแลแจกรหัส
+    const everPaid = db
+      .prepare(
+        `SELECT 1 FROM payments p
+           JOIN assignments a2 ON a2.id = p.assignment_id
+          WHERE a2.member_id = ? AND p.status <> 'cancelled' LIMIT 1`
+      )
+      .get(a.member_id);
+    const firstTime = canSubmit && !everPaid;
+    let tempPin = '';
+    if (firstTime) {
+      tempPin = generatePin(6, db);
+      db.prepare(
+        "UPDATE members SET pin_hash = ?, pin_plain = ?, pin_reset_at = datetime('now') WHERE id = ?"
+      ).run(bcrypt.hashSync(tempPin, 10), tempPin, a.member_id);
+    }
+
     res.json({
       assignment: {
         ...strip(a),
@@ -170,7 +190,9 @@ module.exports = function publicRoutes({ lookupLimiter, submitLimiter }) {
       items,
       payments,
       require_pin: getSettingBool('require_member_pin'),
-      can_submit: col.status === 'open' && !a.waived && a.outstanding > 0,
+      first_time: !!firstTime,
+      temp_pin: tempPin,
+      can_submit: canSubmit,
     });
   }));
 
@@ -340,39 +362,38 @@ module.exports = function publicRoutes({ lookupLimiter, submitLimiter }) {
       LEFT JOIN admins ad      ON ad.id = p.verified_by`;
 
   /**
-   * ค้นหารายการแจ้งชำระจากรหัสที่ผู้ใช้กรอก
-   *   1) ถือเป็นรหัส PIN ของสมาชิก -> คืนรายการล่าสุดของคนนั้น
-   *   2) ถ้าไม่ตรงสมาชิกคนใด ถือเป็นเลขอ้างอิง
-   * รหัส PIN ไม่ซ้ำกันระหว่างสมาชิก (ดู generatePin) การค้นหาจึงไม่กำกวม
+   * ยืนยันตัวตนสมาชิกด้วยรหัสสมาชิก + รหัส PIN ล่าสุด
+   * ใช้ร่วมกันทั้งหน้าตรวจสอบสลิปและหน้าประวัติการชำระ
    */
-  function findLookupPayment(code) {
-    const member = db.prepare('SELECT id FROM members WHERE pin_plain = ?').get(code);
-    if (member) {
-      const latest = db
-        .prepare(
-          `SELECT ${LOOKUP_COLUMNS}
-            WHERE a.member_id = ? AND p.status <> 'cancelled'
-            ORDER BY p.created_at DESC, p.id DESC LIMIT 1`
-        )
-        .get(member.id);
-      if (!latest) v.fail(404, 'รหัสนี้ถูกต้อง แต่ยังไม่มีการแจ้งชำระเงินในระบบ');
-      return latest;
-    }
+  function authMember(memberCode, pin) {
+    const code = v.str(memberCode, 40);
+    const p = v.str(pin, 20);
+    if (!code) v.fail(400, 'กรุณากรอกรหัสสมาชิก');
+    if (!p) v.fail(400, 'กรุณากรอกรหัส PIN ล่าสุดที่ได้รับตอนแจ้งชำระเงิน');
 
-    const byRef = db
-      .prepare(`SELECT ${LOOKUP_COLUMNS} WHERE p.ref_code = ? AND p.status <> 'cancelled'`)
-      .get(code);
-    if (!byRef) {
-      v.fail(404, 'ไม่พบรหัสนี้ในระบบ กรุณาตรวจสอบรหัส PIN ล่าสุดที่ได้รับตอนแจ้งชำระเงิน');
+    const m = db.prepare('SELECT * FROM members WHERE member_code = ? AND is_active = 1').get(code);
+    if (!m || !m.pin_hash || !bcrypt.compareSync(p, m.pin_hash)) {
+      v.fail(401, 'รหัสสมาชิกหรือรหัส PIN ไม่ถูกต้อง หากเพิ่งแจ้งชำระเงิน กรุณาใช้รหัส PIN ชุดใหม่ล่าสุด');
     }
-    return byRef;
+    return m;
+  }
+
+  /** รายการแจ้งชำระล่าสุดของสมาชิก (ไม่นับรายการที่ยกเลิก) */
+  function latestPaymentOf(memberId) {
+    const latest = db
+      .prepare(
+        `SELECT ${LOOKUP_COLUMNS}
+          WHERE a.member_id = ? AND p.status <> 'cancelled'
+          ORDER BY p.created_at DESC, p.id DESC LIMIT 1`
+      )
+      .get(memberId);
+    if (!latest) v.fail(404, 'ยังไม่มีการแจ้งชำระเงินของสมาชิกรายนี้ในระบบ');
+    return latest;
   }
 
   router.get('/payments/lookup', lookupLimiter, v.wrap((req, res) => {
-    const ref = v.str(req.query.ref, 12).replace(/\D/g, '');
-    if (!ref || ref.length < 4) v.fail(400, 'กรุณากรอกรหัส PIN 6 หลักให้ครบถ้วน');
-
-    const p = findLookupPayment(ref);
+    const member = authMember(req.query.member_code, req.query.pin);
+    const p = latestPaymentOf(member.id);
 
     const statusLabel =
       { pending: 'รอตรวจสอบ', approved: 'ชำระแล้ว', rejected: 'ไม่ผ่านการตรวจสอบ' }[p.status] || p.status;
@@ -404,9 +425,10 @@ module.exports = function publicRoutes({ lookupLimiter, submitLimiter }) {
   }));
 
   /* ---------------------------- ดูสลิปด้วยเลขอ้างอิง ---------------------------- */
-  router.get('/payments/:ref(\\d{4,12})/slip', lookupLimiter, v.wrap((req, res) => {
-    const ref = v.str(req.params.ref, 12).replace(/\D/g, '');
-    const p = findLookupPayment(ref);
+  router.get('/payments/slip', lookupLimiter, v.wrap((req, res) => {
+    const member = authMember(req.query.member_code, req.query.pin);
+    const p = latestPaymentOf(member.id);
+    const ref = p.ref_code;
     if (!p.slip_path) v.fail(404, 'รายการนี้ไม่มีไฟล์สลิปแนบไว้');
 
     const abs = path.resolve(UPLOAD_DIR, p.slip_path);
@@ -420,17 +442,9 @@ module.exports = function publicRoutes({ lookupLimiter, submitLimiter }) {
 
   /* ----------------------- ประวัติการชำระของสมาชิก (ค้นด้วยรหัส) ----------------------- */
   router.post('/member/history', lookupLimiter, v.wrap((req, res) => {
-    const code = v.str(req.body.member_code, 40);
-    const pin = v.str(req.body.pin, 20);
-    if (!code) v.fail(400, 'กรุณากรอกรหัสสมาชิก');
-    // ประวัติการชำระเป็นข้อมูลส่วนบุคคล จึงต้องใช้รหัส PIN ล่าสุดเสมอ
+    // ประวัติการชำระเป็นข้อมูลส่วนบุคคล จึงต้องใช้รหัสสมาชิกคู่กับรหัส PIN ล่าสุดเสมอ
     // ไม่ขึ้นกับการตั้งค่า require_member_pin ซึ่งคุมเฉพาะตอนแจ้งชำระเงิน
-    if (!pin) v.fail(400, 'กรุณากรอกรหัส PIN ล่าสุดที่ได้รับตอนแจ้งชำระเงิน');
-
-    const m = db.prepare('SELECT * FROM members WHERE member_code = ? AND is_active = 1').get(code);
-    if (!m || !m.pin_hash || !bcrypt.compareSync(pin, m.pin_hash)) {
-      v.fail(401, 'รหัสสมาชิกหรือรหัส PIN ไม่ถูกต้อง หากเพิ่งแจ้งชำระเงิน กรุณาใช้รหัส PIN ชุดใหม่ล่าสุด');
-    }
+    const m = authMember(req.body.member_code, req.body.pin);
 
     const ledger = finance.getMemberLedger(m.id).filter((r) => r.collection_status !== 'draft');
     const totals = finance.summarize(ledger);

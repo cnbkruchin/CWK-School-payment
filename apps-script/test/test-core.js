@@ -130,7 +130,7 @@ ok('รีเซ็ต PIN รายคนได้', reset1 && reset1.members[0
 const pin1 = reset1.members[0].pin;
 const resetG = unwrap(S.apiResetPin({ token: TOKEN, group_id: gA.id }), 'รีเซ็ตทั้งกลุ่ม');
 ok('รีเซ็ต PIN ทั้งกลุ่มได้', resetG && resetG.count >= 2, String(resetG && resetG.count));
-const pinA = resetG.members.find(x => x.id === m1.id).pin;
+let pinA = resetG.members.find(x => x.id === m1.id).pin;
 
 console.log('\n=== 5. รายการจัดเก็บ ===');
 const col = unwrap(S.apiSaveCollection({
@@ -172,11 +172,24 @@ ok('ไม่เปิดเผย PIN บนหน้าสาธารณะ',
 const target = board.members.find(m => m.member_code === m1.member_code);
 ok('พบสมาชิกเป้าหมาย', !!target);
 
+console.log('\n=== 8ก. รหัส PIN ชั่วคราวสำหรับการแจ้งชำระครั้งแรก ===');
+{
+  const d = unwrap(S.apiPublicAssignment({ assignment_id: target.assignment_id }), 'ข้อมูลฟอร์มแจ้งชำระ');
+  ok('สมาชิกที่ยังไม่เคยแจ้งชำระถือเป็นครั้งแรก', d.first_time === true);
+  ok('ระบบออกรหัสชั่วคราว 6 หลักให้', /^\d{6}$/.test(d.temp_pin || ''), String(d.temp_pin));
+  const mem = S.dbFind('Members', m => m.member_code === m1.member_code);
+  ok('บันทึกรหัสชั่วคราวลงฐานข้อมูลแล้ว', mem.pin_plain === d.temp_pin);
+  ok('รหัสชั่วคราวใช้ยืนยันตัวตนได้จริง', S.verifyPin_(d.temp_pin, mem.pin_salt, mem.pin_hash));
+  ok('ยังไม่เปิดเผยค่าแฮชของ PIN', !JSON.stringify(d).includes('pin_hash') && !JSON.stringify(d).includes('pin_salt'));
+  pinA = d.temp_pin;   // ใช้รหัสชั่วคราวแจ้งชำระครั้งแรก
+}
+
 console.log('\n=== 8. แจ้งชำระเงิน ===');
 r = S.apiSubmitPayment({ assignment_id: target.assignment_id, pin: '000000', slip_base64: slip('A'), slip_name: 'slip.png' });
 ok('PIN ผิดถูกปฏิเสธ', !r.ok && /รหัสสมาชิกไม่ถูกต้อง/.test(r.error), r.error);
 
 const sub = unwrap(S.apiSubmitPayment({ assignment_id: target.assignment_id, pin: pinA, slip_base64: slip('A'), slip_name: 'slip.png', payer_name: 'นายสมบัติ ใจดี', transferred_at: '2026-09-19T09:30' }), 'แจ้งชำระ');
+ok('แจ้งชำระครั้งแรกด้วยรหัสชั่วคราวได้', !!sub);
 ok('แจ้งชำระเงินสำเร็จ', !!sub);
 ok('ได้เลขอ้างอิง 4 หลัก', sub && /^\d{4}$/.test(sub.ref_code), sub && sub.ref_code);
 ok('สถานะเป็น "รอตรวจสอบ"', sub && sub.status_label === 'รอตรวจสอบ');
@@ -197,19 +210,32 @@ ok('รหัสเดิมแจ้งชำระไม่ได้แล้�
 r = S.apiSubmitPayment({ assignment_id: target.assignment_id, pin: PIN_A, slip_base64: slip('B'), slip_name: 'x.png' });
 ok('กันการแจ้งซ้ำขณะรอตรวจสอบ', !r.ok && /รอการตรวจสอบ/.test(r.error), r.error);
 
-// รหัส PIN ต้องไม่ซ้ำกันระหว่างสมาชิก เพราะใช้ค้นหาสลิป
+// แจ้งชำระแล้วต้องไม่ออกรหัสชั่วคราวให้อีก
+{
+  const d2 = S.apiPublicAssignment({ assignment_id: target.assignment_id }).data;
+  ok('แจ้งชำระแล้วไม่ถือเป็นครั้งแรกอีก', d2.first_time === false);
+  ok('ไม่ออกรหัสชั่วคราวซ้ำ', !d2.temp_pin);
+  const mem2 = S.dbFind('Members', m => m.member_code === m1.member_code);
+  ok('รหัสจริงไม่ถูกเขียนทับด้วยรหัสชั่วคราว', mem2.pin_plain === PIN_A);
+}
+
+// รหัส PIN ไม่ซ้ำกันระหว่างสมาชิก (เป็นคุณสมบัติเพื่อความชัดเจนในชีต)
 const allPins = S.dbAll('Members').map(m => String(m.pin_plain)).filter(Boolean);
 ok('รหัส PIN ไม่ซ้ำกันทั้งระบบ', new Set(allPins).size === allPins.length,
   allPins.length + ' คน / ไม่ซ้ำ ' + new Set(allPins).size);
 
-console.log('\n=== 9. ตรวจสอบด้วยรหัส PIN ===');
-const look = unwrap(S.apiLookupPayment({ ref: PIN_A }), 'ค้นด้วยรหัส PIN');
-ok('ค้นหาด้วยรหัส PIN ได้', look && look.ref_code === REF);
+console.log('\n=== 9. ตรวจสอบด้วยรหัสสมาชิก + รหัส PIN ===');
+const AUTH_A = { member_code: m1.member_code, pin: PIN_A };
+const look = unwrap(S.apiLookupPayment(AUTH_A), 'ค้นด้วยรหัสสมาชิก+PIN');
+ok('ค้นหาด้วยรหัสสมาชิก + PIN ได้', look && look.ref_code === REF);
 ok('สถานะ "รอตรวจสอบ"', look && look.status === 'pending');
-const slipData = unwrap(S.apiLookupSlip({ ref: PIN_A }), 'ดูสลิปด้วย PIN');
-ok('ดูสลิปด้วยรหัส PIN ได้', slipData && slipData.data_url.indexOf('data:image/png;base64,') === 0);
-ok('ใช้เลขอ้างอิงค้นหาได้เหมือนเดิม', S.apiLookupPayment({ ref: REF }).data.ref_code === REF);
-ok('รหัสที่ไม่มีอยู่ถูกปฏิเสธ', !S.apiLookupPayment({ ref: '0000' }).ok);
+const slipData = unwrap(S.apiLookupSlip(AUTH_A), 'ดูสลิป');
+ok('ดูสลิปด้วยรหัสสมาชิก + PIN ได้', slipData && slipData.data_url.indexOf('data:image/png;base64,') === 0);
+ok('ไม่กรอกรหัสสมาชิกไม่ได้', !S.apiLookupPayment({ pin: PIN_A }).ok);
+ok('ไม่กรอก PIN ไม่ได้', !S.apiLookupPayment({ member_code: m1.member_code }).ok);
+ok('PIN ผิดถูกปฏิเสธ', !S.apiLookupPayment({ member_code: m1.member_code, pin: '000000' }).ok);
+ok('รหัสเดิมใช้ค้นหาไม่ได้แล้ว', !S.apiLookupPayment({ member_code: m1.member_code, pin: pinA }).ok);
+ok('รหัสสมาชิกที่ไม่มีอยู่ถูกปฏิเสธ', !S.apiLookupPayment({ member_code: 'M9999', pin: PIN_A }).ok);
 
 const board2 = unwrap(S.apiPublicCollection({ id: col.id }), 'ตาราง');
 const t2 = board2.members.find(m => m.member_code === m1.member_code);
@@ -234,7 +260,7 @@ ok('ออกใบเสร็จได้', S.apiReceipt({ token: TOKEN, id: p
 const board3 = unwrap(S.apiPublicCollection({ id: col.id }), 'ตาราง');
 const t3 = board3.members.find(m => m.member_code === m1.member_code);
 ok('หน้าสาธารณะแสดง "ชำระแล้ว"', t3.status === 'paid');
-ok('ค้นด้วยรหัส PIN แสดง "ชำระแล้ว"', S.apiLookupPayment({ ref: PIN_A }).data.status === 'approved');
+ok('ค้นด้วยรหัสสมาชิก + PIN แสดง "ชำระแล้ว"', S.apiLookupPayment(AUTH_A).data.status === 'approved');
 
 console.log('\n=== 11. ไม่อนุมัติ และแจ้งใหม่ ===');
 const other = board3.members.find(m => m.status === 'unpaid');
@@ -259,7 +285,7 @@ const resub = S.apiSubmitPayment({ assignment_id: other.assignment_id, pin: PIN_
 ok('แจ้งชำระใหม่ได้หลังถูกปฏิเสธ (ด้วยรหัสล่าสุด)', resub.ok, resub.error || '');
 if (resub.ok) PIN_B = resub.data.new_pin;
 ok('ค้นด้วยรหัสล่าสุดได้สลิปล่าสุด',
-  S.apiLookupPayment({ ref: PIN_B }).data.ref_code === resub.data.ref_code);
+  S.apiLookupPayment({ member_code: other.member_code, pin: PIN_B }).data.ref_code === resub.data.ref_code);
 
 // สลิปซ้ำ
 const third = S.apiPublicCollection({ id: col.id }).data.members.find(m => m.status === 'unpaid');

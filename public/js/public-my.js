@@ -1,6 +1,9 @@
 /* ประวัติการชำระเงินรายบุคคล (สมาชิกดูด้วยรหัสของตนเอง) */
 'use strict';
 
+/** ข้อมูลยืนยันตัวตนที่กรอกล่าสุด (ใช้ต่อเมื่อกดดูสลิป) */
+let MY_AUTH = { code: '', pin: '' };
+
 api('/api/public/config').then((cfg) => {
   $('#schoolName').textContent = cfg.school_name;
   $('#contactNote').textContent = cfg.contact_note || '';
@@ -70,7 +73,7 @@ function render(d) {
               ['unpaid', 'rejected', 'partial'].includes(r.status)
                 ? el('a', { class: 'btn btn-sm btn-red', href: `/collection.html?id=${r.collection_id}`, text: 'ไปแจ้งชำระ' })
                 : r.latest_ref
-                  ? el('a', { class: 'btn btn-sm', href: `/check.html?ref=${r.latest_ref}`, text: `ดูสลิป (${r.latest_ref})` })
+                  ? el('a', { class: 'btn btn-sm', href: `/check.html?code=${encodeURIComponent(MY_AUTH.code)}&pin=${encodeURIComponent(MY_AUTH.pin)}`, text: `ดูสลิป (${r.latest_ref})` })
                   : null,
             ]),
           ]))),
@@ -99,9 +102,11 @@ $('#myForm').addEventListener('submit', async (e) => {
   const btn = $('#myBtn');
   busy(btn, true, 'กำลังค้นหา...');
   try {
+    // เก็บไว้ใช้ต่อเมื่อกดดูสลิปจากตารางประวัติ
+    MY_AUTH = { code: $('#codeInput').value.trim(), pin: $('#pinInput').value };
     const d = await api('/api/public/member/history', {
       method: 'POST',
-      body: { member_code: $('#codeInput').value.trim(), pin: $('#pinInput').value },
+      body: { member_code: MY_AUTH.code, pin: MY_AUTH.pin },
     });
     render(d);
     $('#pinInput').value = '';

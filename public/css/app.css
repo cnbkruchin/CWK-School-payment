@@ -450,6 +450,19 @@ a.card:active .card-cta .btn { transform: translateY(1px); }
 }
 .pin-issue-warn strong { color: var(--red-600); }
 
+/* ---------- รหัส PIN ชั่วคราวสำหรับการแจ้งชำระครั้งแรก ---------- */
+.temp-pin {
+  margin-bottom: 1rem; padding: .85rem 1rem; border-radius: 12px;
+  background: var(--brand-50); border: 2px dashed var(--brand-500);
+}
+.temp-pin-head { font-weight: 700; color: var(--brand-700); font-size: .95rem; }
+.temp-pin-code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: clamp(1.9rem, 9vw, 2.6rem); font-weight: 800; letter-spacing: .16em;
+  line-height: 1.2; margin: .25rem 0 .4rem; color: var(--ink); word-break: break-all;
+}
+.temp-pin-note { font-size: .88rem; color: var(--ink-2); }
+
 /* --------------------------------- มือถือ --------------------------------- */
 @media (max-width: 720px) {
   body { font-size: 15.5px; }

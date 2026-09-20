@@ -1,4 +1,4 @@
-/* ตรวจสอบสถานะและดูสลิปด้วยรหัส PIN ล่าสุด (ใช้เลขอ้างอิงแทนก็ได้) */
+/* ตรวจสอบสถานะและดูสลิปด้วยรหัสสมาชิก + รหัส PIN ล่าสุด */
 'use strict';
 
 api('/api/public/config').then((cfg) => {
@@ -19,21 +19,31 @@ const STATUS_MAP = {
               desc: 'กรุณาตรวจสอบเหตุผลและแจ้งชำระใหม่อีกครั้ง' },
 };
 
-async function check(ref) {
+/** ข้อมูลยืนยันตัวตนที่ใช้ค้นหาครั้งล่าสุด (ใช้ซ้ำตอนเรียกดูสลิป) */
+let AUTH = null;
+
+/** สร้าง query string สำหรับเรียก API ที่ต้องยืนยันตัวตน */
+function authQuery() {
+  return `member_code=${encodeURIComponent(AUTH.member_code)}&pin=${encodeURIComponent(AUTH.pin)}`;
+}
+
+async function check(memberCode, pin) {
   const box = $('#result');
   box.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังค้นหา...</div>';
+  AUTH = { member_code: memberCode, pin };
   try {
-    const p = await api(`/api/public/payments/lookup?ref=${encodeURIComponent(ref)}`);
+    const p = await api(`/api/public/payments/lookup?${authQuery()}`);
     render(p);
     const url = new URL(location.href);
-    url.searchParams.set('ref', p.ref_code);
+    url.searchParams.set('code', memberCode);
+    url.searchParams.delete('ref');
     history.replaceState(null, '', url);
   } catch (e) {
     box.innerHTML = '';
     box.appendChild(el('div', { class: 'card' }, [
       el('div', { class: 'alert alert-error' }, [e.message]),
       el('p', { class: 'small muted', style: 'margin:1rem 0 0' },
-        ['หากท่านจำเลขอ้างอิงไม่ได้ สามารถดูได้จากเมนู "ประวัติของฉัน" โดยใช้รหัสสมาชิกและรหัส PIN']),
+        ['หากจำรหัส PIN ล่าสุดไม่ได้ กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่']),
     ]));
   }
 }
@@ -84,8 +94,8 @@ function render(p) {
     p.has_slip ? el('div', {}, [
       el('div', { class: 'label', text: 'สลิปที่แนบไว้' }),
       p.slip_mime === 'application/pdf'
-        ? el('a', { class: 'btn btn-block', href: `/api/public/payments/${p.ref_code}/slip`, target: '_blank', rel: 'noopener', text: '📄 เปิดไฟล์ PDF สลิป' })
-        : el('img', { src: `/api/public/payments/${p.ref_code}/slip`, class: 'slip-frame', alt: `สลิปเลขอ้างอิง ${p.ref_code}`, loading: 'lazy' }),
+        ? el('a', { class: 'btn btn-block', href: `/api/public/payments/slip?${authQuery()}`, target: '_blank', rel: 'noopener', text: '📄 เปิดไฟล์ PDF สลิป' })
+        : el('img', { src: `/api/public/payments/slip?${authQuery()}`, class: 'slip-frame', alt: `สลิปเลขอ้างอิง ${p.ref_code}`, loading: 'lazy' }),
     ]) : null,
 
     el('div', { class: 'row no-print', style: 'margin-top:.5rem' }, [
@@ -98,10 +108,12 @@ function render(p) {
 
 $('#checkForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const code = $('#checkCode').value.trim();
   const ref = $('#refInput').value.replace(/\D/g, '');
+  if (!code) return toast('กรุณากรอกรหัสสมาชิก', 'warn');
   if (ref.length < 4) return toast('กรุณากรอกรหัส PIN 6 หลักให้ครบถ้วน', 'warn');
   busy($('#checkBtn'), true, 'กำลังค้นหา...');
-  await check(ref);
+  await check(code, ref);
   busy($('#checkBtn'), false);
 });
 
@@ -109,8 +121,12 @@ $('#refInput').addEventListener('input', (e) => {
   e.target.value = e.target.value.replace(/\D/g, '');
 });
 
-const initial = qs('ref');
-if (initial) {
-  $('#refInput').value = initial.replace(/\D/g, '');
-  check($('#refInput').value);
+const initialCode = qs('code');
+const initialPin = qs('pin');
+if (initialCode) $('#checkCode').value = initialCode;
+if (initialCode && initialPin) {
+  $('#refInput').value = initialPin.replace(/\D/g, '');
+  check(initialCode, $('#refInput').value);
+} else if (initialCode) {
+  $('#refInput').focus();
 }

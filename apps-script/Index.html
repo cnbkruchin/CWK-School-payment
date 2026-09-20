@@ -97,7 +97,7 @@ function render() {
   var main = $('#main');
   main.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังโหลด...</div>';
   if (VIEW === 'collection') return renderCollection(STATE.params.id || (BOOT.initial && BOOT.initial.id));
-  if (VIEW === 'check') return renderCheck(STATE.params.ref || (BOOT.initial && BOOT.initial.ref));
+  if (VIEW === 'check') return renderCheck(STATE.params.auth || null);
   if (VIEW === 'my') return renderMy();
   return renderHome();
 }
@@ -501,10 +501,35 @@ function buildSubmitModal(member, detail) {
   ]));
 
   if (needPin) {
+    // ครั้งแรกของสมาชิกคนนี้ — ระบบออกรหัสชั่วคราวให้ใช้ได้ทันที ไม่ต้องรอผู้ดูแลแจกรหัส
+    if (detail.first_time && detail.temp_pin) {
+      form.appendChild(el('div', { class: 'temp-pin' }, [
+        el('div', { class: 'temp-pin-head', text: '🎫 รหัส PIN ชั่วคราวสำหรับการแจ้งชำระครั้งแรก' }),
+        el('div', { class: 'temp-pin-code', text: detail.temp_pin }),
+        el('div', { class: 'temp-pin-note' }, [
+          'ท่านยังไม่เคยแจ้งชำระเงิน ระบบจึงออกรหัสชั่วคราวให้ใช้ครั้งนี้ ',
+          el('strong', { text: 'กรอกรหัสนี้ในช่องด้านล่างได้เลย' }),
+          el('div', { style: 'margin-top:.25rem' }, [
+            'เมื่อแจ้งชำระสำเร็จ ระบบจะออก ', el('strong', { text: 'รหัส PIN จริง' }), ' ชุดใหม่ให้ท่านเก็บไว้ใช้ครั้งต่อไป'
+          ])
+        ]),
+        el('button', {
+          class: 'btn btn-sm btn-block', type: 'button', style: 'margin-top:.6rem',
+          text: '↓ กรอกรหัสนี้ให้อัตโนมัติ',
+          onclick: function () {
+            var f = $('#pinInput', form);
+            if (f) { f.value = detail.temp_pin; f.focus(); toast('กรอกรหัสชั่วคราวให้แล้ว', 'success'); }
+          }
+        })
+      ]));
+    }
+
     form.appendChild(el('div', { class: 'field' }, [
       el('label', { class: 'req', for: 'pinInput', text: 'รหัสสมาชิก (PIN) สำหรับยืนยันตัวตน' }),
       el('input', { type: 'password', id: 'pinInput', inputmode: 'numeric', autocomplete: 'off', required: true, maxlength: '12', placeholder: '••••••' }),
-      el('div', { class: 'hint', text: 'หากลืมรหัส กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่' })
+      el('div', { class: 'hint', text: detail.first_time
+        ? 'ใช้รหัสชั่วคราวด้านบนสำหรับการแจ้งชำระครั้งแรก'
+        : 'ใช้รหัส PIN ชุดล่าสุดที่ได้รับตอนแจ้งชำระครั้งก่อน — หากลืม กรุณาติดต่อฝ่ายการเงินของโรงเรียน' })
     ]));
   }
 
@@ -662,7 +687,10 @@ function showSuccess(r) {
     title: 'บันทึกการแจ้งชำระสำเร็จ', body: body,
     footer: [
       el('button', { class: 'btn', type: 'button', text: '🖨 พิมพ์หลักฐาน', onclick: function () { window.print(); } }),
-      el('button', { class: 'btn', type: 'button', text: 'ตรวจสอบสถานะ', onclick: function () { m.close(); go('check', { ref: r.new_pin || r.ref_code }); } }),
+      el('button', {
+        class: 'btn', type: 'button', text: 'ตรวจสอบสถานะ',
+        onclick: function () { m.close(); go('check', { auth: { code: r.member_code, pin: r.new_pin } }); }
+      }),
       el('button', { class: 'btn btn-primary', type: 'button', text: 'เสร็จสิ้น', onclick: function () { m.close(); } })
     ]
   });
@@ -704,7 +732,7 @@ function openInfo(member) {
                 ]),
                 el('td', {}, [p.has_slip ? el('button', {
                   class: 'btn btn-sm', type: 'button', text: 'ดูสลิป',
-                  onclick: function () { m.close(); go('check', { ref: p.ref_code }); }
+                  onclick: function () { m.close(); go('check', { auth: { code: a.member_code } }); }
                 }) : null])
               ]);
             }))
@@ -728,6 +756,13 @@ function renderCheck(initialRef) {
 
   var form = el('form', { id: 'checkForm', autocomplete: 'off' }, [
     el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'checkCode', text: 'รหัสสมาชิก' }),
+      el('input', {
+        type: 'text', id: 'checkCode', required: true, maxlength: '40',
+        placeholder: 'เช่น M0001', autocomplete: 'username'
+      })
+    ]),
+    el('div', { class: 'field' }, [
       el('label', { class: 'req', for: 'refInput', text: 'รหัส PIN ล่าสุด (6 หลัก)' }),
       el('input', {
         type: 'text', id: 'refInput', class: 'pin-input', inputmode: 'numeric',
@@ -741,10 +776,8 @@ function renderCheck(initialRef) {
   main.appendChild(el('section', { class: 'card no-print', style: 'margin-bottom:1rem' }, [
     el('h1', { style: 'margin-bottom:.25rem', text: 'ตรวจสอบสถานะและดูสลิป' }),
     el('p', { class: 'muted small', style: 'margin-bottom:1rem' }, [
-      'กรอก ', el('strong', { text: 'รหัส PIN ชุดล่าสุด' }),
-      ' ที่ได้รับตอนแจ้งชำระเงิน เพื่อดูสถานะการตรวจสอบและเรียกดูสลิปที่แนบไว้ล่าสุด',
-      el('br'),
-      el('span', { class: 'tiny', text: '(ใช้เลขอ้างอิงของรายการแทนก็ได้)' })
+      'กรอก ', el('strong', { text: 'รหัสสมาชิก' }), ' คู่กับ ', el('strong', { text: 'รหัส PIN ชุดล่าสุด' }),
+      ' ที่ได้รับตอนแจ้งชำระเงิน เพื่อดูสถานะการตรวจสอบและเรียกดูสลิปที่แนบไว้ล่าสุด'
     ]),
     form
   ]));
@@ -754,35 +787,47 @@ function renderCheck(initialRef) {
   $('#refInput').addEventListener('input', function (e) { e.target.value = e.target.value.replace(/\D/g, ''); });
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    doCheck($('#refInput').value);
+    doCheck($('#checkCode').value, $('#refInput').value);
   });
 
-  if (initialRef) {
-    $('#refInput').value = String(initialRef).replace(/\D/g, '');
-    doCheck($('#refInput').value);
+  if (initialRef && initialRef.code) $('#checkCode').value = initialRef.code;
+  if (initialRef && initialRef.pin) {
+    $('#refInput').value = String(initialRef.pin).replace(/\D/g, '');
+    doCheck($('#checkCode').value, $('#refInput').value);
+  } else if (initialRef && initialRef.code) {
+    $('#refInput').focus();
   }
 }
 
-function doCheck(ref) {
-  ref = String(ref || '').replace(/\D/g, '');
-  if (ref.length < 4) { toast('กรุณากรอกรหัส PIN 6 หลักให้ครบถ้วน', 'warn'); return; }
+function doCheck(memberCode, pin) {
+  memberCode = String(memberCode || '').trim();
+  pin = String(pin || '').replace(/\D/g, '');
+  if (!memberCode) { toast('กรุณากรอกรหัสสมาชิก', 'warn'); return; }
+  if (pin.length < 4) { toast('กรุณากรอกรหัส PIN 6 หลักให้ครบถ้วน', 'warn'); return; }
+
   var box = $('#checkResult');
   var btn = $('#checkBtn');
   busy(btn, true, 'กำลังค้นหา...');
   box.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังค้นหา...</div>';
 
-  call('apiLookupPayment', { ref: ref }, { auth: false })
+  CHECK_AUTH = { member_code: memberCode, pin: pin };
+  call('apiLookupPayment', CHECK_AUTH, { auth: false })
     .then(function (p) { drawCheckResult(p); })
     .catch(function (e) {
       box.innerHTML = '';
       box.appendChild(el('div', { class: 'card' }, [
         el('div', { class: 'alert alert-error' }, [e.message]),
         el('p', { class: 'small muted', style: 'margin:1rem 0 0' },
-          ['หากท่านจำเลขอ้างอิงไม่ได้ สามารถดูได้จากเมนู "ประวัติของฉัน" โดยใช้รหัสสมาชิกและรหัส PIN'])
+          ['หากจำรหัส PIN ล่าสุดไม่ได้ กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่'])
       ]));
     })
     .then(function () { busy(btn, false); });
 }
+
+/** ข้อมูลยืนยันตัวตนที่ใช้ค้นหาครั้งล่าสุด (ใช้ซ้ำตอนเรียกดูสลิป) */
+var CHECK_AUTH = null;
+/** ข้อมูลยืนยันตัวตนจากหน้าประวัติของฉัน (ใช้ต่อเมื่อกดดูสลิป) */
+var MY_AUTH = null;
 
 var CHECK_STATUS = {
   pending:  { key: 'pending',  icon: '⏳', color: 'var(--amber-600)', title: 'รอตรวจสอบ', desc: 'ผู้ดูแลระบบได้รับการแจ้งชำระของท่านแล้ว อยู่ระหว่างตรวจสอบสลิป' },
@@ -845,7 +890,7 @@ function drawCheckResult(p) {
   if (p.has_slip) {
     slipBox.appendChild(el('div', { class: 'label', text: 'สลิปที่แนบไว้' }));
     slipBox.appendChild(el('div', { class: 'loading', style: 'padding:1.5rem' }, [el('span', { class: 'spinner' }), ' กำลังโหลดสลิป...']));
-    call('apiLookupSlip', { ref: p.ref_code }, { auth: false })
+    call('apiLookupSlip', CHECK_AUTH || {}, { auth: false })
       .then(function (f) {
         slipBox.innerHTML = '';
         slipBox.appendChild(el('div', { class: 'label', text: 'สลิปที่แนบไว้' }));
@@ -899,9 +944,11 @@ function renderMy() {
     var btn = $('#myBtn');
     busy(btn, true, 'กำลังค้นหา...');
     var pinEl = $('#pinInput2');
+    // เก็บไว้ใช้ต่อเมื่อกดดูสลิปจากตารางประวัติ
+    MY_AUTH = { code: $('#codeInput').value.trim(), pin: pinEl ? pinEl.value : '' };
     call('apiMemberHistory', {
-      member_code: $('#codeInput').value.trim(),
-      pin: pinEl ? pinEl.value : ''
+      member_code: MY_AUTH.code,
+      pin: MY_AUTH.pin
     }, { auth: false })
       .then(function (d) {
         drawMy(d);
@@ -971,7 +1018,7 @@ function drawMy(d) {
               ['unpaid', 'rejected', 'partial'].indexOf(r.status) >= 0
                 ? el('button', { class: 'btn btn-sm btn-red', type: 'button', text: 'ไปแจ้งชำระ', onclick: function () { go('collection', { id: r.collection_id }); } })
                 : (r.latest_ref
-                  ? el('button', { class: 'btn btn-sm', type: 'button', text: 'ดูสลิป (' + r.latest_ref + ')', onclick: function () { go('check', { ref: r.latest_ref }); } })
+                  ? el('button', { class: 'btn btn-sm', type: 'button', text: 'ดูสลิป (' + r.latest_ref + ')', onclick: function () { go('check', { auth: MY_AUTH }); } })
                   : null)
             ])
           ]);

@@ -324,13 +324,38 @@ async function openSubmitModal(member) {
   ]));
 
   if (needPin) {
+    // ครั้งแรกของสมาชิกคนนี้ — ระบบออกรหัสชั่วคราวให้ใช้ได้ทันที ไม่ต้องรอผู้ดูแลแจกรหัส
+    if (detail.first_time && detail.temp_pin) {
+      form.appendChild(el('div', { class: 'temp-pin' }, [
+        el('div', { class: 'temp-pin-head', text: '🎫 รหัส PIN ชั่วคราวสำหรับการแจ้งชำระครั้งแรก' }),
+        el('div', { class: 'temp-pin-code', text: detail.temp_pin }),
+        el('div', { class: 'temp-pin-note' }, [
+          'ท่านยังไม่เคยแจ้งชำระเงิน ระบบจึงออกรหัสชั่วคราวให้ใช้ครั้งนี้ ',
+          el('strong', { text: 'กรอกรหัสนี้ในช่องด้านล่างได้เลย' }),
+          el('div', { style: 'margin-top:.25rem' }, [
+            'เมื่อแจ้งชำระสำเร็จ ระบบจะออก ', el('strong', { text: 'รหัส PIN จริง' }), ' ชุดใหม่ให้ท่านเก็บไว้ใช้ครั้งต่อไป',
+          ]),
+        ]),
+        el('button', {
+          class: 'btn btn-sm btn-block', type: 'button', style: 'margin-top:.6rem',
+          text: '↓ กรอกรหัสนี้ให้อัตโนมัติ',
+          onclick: () => {
+            const f = $('#pinInput', form);
+            if (f) { f.value = detail.temp_pin; f.focus(); toast('กรอกรหัสชั่วคราวให้แล้ว', 'success'); }
+          },
+        }),
+      ]));
+    }
+
     form.appendChild(el('div', { class: 'field' }, [
       el('label', { class: 'req', for: 'pinInput', text: 'รหัสสมาชิก (PIN) สำหรับยืนยันตัวตน' }),
       el('input', {
         type: 'password', id: 'pinInput', name: 'pin', inputmode: 'numeric',
         autocomplete: 'off', required: true, maxlength: '12', placeholder: '••••••',
       }),
-      el('div', { class: 'hint', text: 'หากลืมรหัส กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่' }),
+      el('div', { class: 'hint', text: detail.first_time
+        ? 'ใช้รหัสชั่วคราวด้านบนสำหรับการแจ้งชำระครั้งแรก'
+        : 'ใช้รหัส PIN ชุดล่าสุดที่ได้รับตอนแจ้งชำระครั้งก่อน — หากลืม กรุณาติดต่อฝ่ายการเงินของโรงเรียน' }),
     ]));
   }
 
@@ -472,7 +497,7 @@ function showSuccess(r) {
     body,
     footer: [
       el('button', { class: 'btn', type: 'button', text: '🖨 พิมพ์หลักฐาน', onclick: () => window.print() }),
-      el('a', { class: 'btn', href: `/check.html?ref=${r.new_pin || r.ref_code}`, text: 'ตรวจสอบสถานะ' }),
+      el('a', { class: 'btn', href: `/check.html?code=${encodeURIComponent(r.member_code)}&pin=${encodeURIComponent(r.new_pin || '')}`, text: 'ตรวจสอบสถานะ' }),
       el('button', { class: 'btn btn-primary', type: 'button', text: 'เสร็จสิ้น', onclick: () => m.close() }),
     ],
   });
@@ -518,7 +543,7 @@ async function openInfoModal(member) {
               p.reject_reason ? el('div', { class: 'tiny', style: 'color:var(--red-600)', text: p.reject_reason }) : null,
             ]),
             el('td', {}, [p.has_slip
-              ? el('a', { class: 'btn btn-sm', href: `/check.html?ref=${p.ref_code}`, text: 'ดูสลิป' }) : null]),
+              ? el('a', { class: 'btn btn-sm', href: `/check.html?code=${encodeURIComponent(a.member_code)}`, text: 'ดูสลิป' }) : null]),
           ]))),
       ]),
     ]));

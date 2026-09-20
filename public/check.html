@@ -35,10 +35,14 @@
     <section class="card no-print">
       <h1 style="margin-bottom:.25rem">ตรวจสอบสถานะและดูสลิป</h1>
       <p class="muted small" style="margin-bottom:1rem">
-        กรอก <strong>รหัส PIN ชุดล่าสุด</strong> ที่ได้รับตอนแจ้งชำระเงิน เพื่อดูสถานะการตรวจสอบและเรียกดูสลิปที่แนบไว้ล่าสุด<br>
-        <span class="tiny">(ใช้เลขอ้างอิงของรายการแทนก็ได้)</span>
+        กรอก <strong>รหัสสมาชิก</strong> คู่กับ <strong>รหัส PIN ชุดล่าสุด</strong> ที่ได้รับตอนแจ้งชำระเงิน
+        เพื่อดูสถานะการตรวจสอบและเรียกดูสลิปที่แนบไว้ล่าสุด
       </p>
       <form id="checkForm" autocomplete="off">
+        <div class="field">
+          <label class="req" for="checkCode">รหัสสมาชิก</label>
+          <input type="text" id="checkCode" maxlength="40" placeholder="เช่น M0001" required autocomplete="username">
+        </div>
         <div class="field">
           <label class="req" for="refInput">รหัส PIN ล่าสุด (6 หลัก)</label>
           <input type="text" id="refInput" class="pin-input" inputmode="numeric" pattern="[0-9]*"
