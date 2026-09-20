@@ -1,0 +1,464 @@
+<script>
+/* ===========================================================================
+ *  ตัวสร้าง QR Code ขนาดเล็ก (โหมด Byte, ระดับแก้ไขข้อผิดพลาด M)
+ *  เขียนขึ้นเองเพื่อให้ระบบไม่ต้องพึ่งบริการภายนอก — ข้อมูลพร้อมเพย์ของ
+ *  โรงเรียนจึงไม่ถูกส่งออกไปที่ใดเลย และยังใช้งานได้แม้อินเทอร์เน็ตช้า
+ *  อ้างอิงมาตรฐาน ISO/IEC 18004
+ * =========================================================================== */
+var QR = (function () {
+  'use strict';
+
+  /* ------------------------- เลขคณิตบนสนามจำกัด GF(256) ------------------------- */
+  var EXP = new Array(512);
+  var LOG = new Array(256);
+  (function () {
+    var x = 1;
+    for (var i = 0; i < 255; i++) {
+      EXP[i] = x;
+      LOG[x] = i;
+      x <<= 1;
+      if (x & 0x100) x ^= 0x11d;
+    }
+    for (var j = 255; j < 512; j++) EXP[j] = EXP[j - 255];
+  })();
+
+  function gfMul(a, b) {
+    if (a === 0 || b === 0) return 0;
+    return EXP[LOG[a] + LOG[b]];
+  }
+
+  /** พหุนามสร้างรหัสแก้ไขข้อผิดพลาด */
+  function rsGenerator(degree) {
+    var poly = [1];
+    for (var i = 0; i < degree; i++) {
+      var next = new Array(poly.length + 1);
+      for (var k = 0; k < next.length; k++) next[k] = 0;
+      for (var j = 0; j < poly.length; j++) {
+        next[j] ^= poly[j];
+        next[j + 1] ^= gfMul(poly[j], EXP[i]);
+      }
+      poly = next;
+    }
+    return poly;
+  }
+
+  function rsEncode(data, ecLen) {
+    var gen = rsGenerator(ecLen);
+    var res = new Array(ecLen);
+    for (var i = 0; i < ecLen; i++) res[i] = 0;
+    for (var d = 0; d < data.length; d++) {
+      var factor = data[d] ^ res[0];
+      res.shift();
+      res.push(0);
+      if (factor !== 0) {
+        for (var g = 1; g < gen.length; g++) res[g - 1] ^= gfMul(gen[g], factor);
+      }
+    }
+    return res;
+  }
+
+  /* --------------------------- ตารางความจุ (ระดับ M) --------------------------- */
+  // แต่ละรายการ: [จำนวนไบต์ EC ต่อบล็อก, จำนวนบล็อกกลุ่ม 1, ไบต์ข้อมูลต่อบล็อกกลุ่ม 1,
+  //               จำนวนบล็อกกลุ่ม 2, ไบต์ข้อมูลต่อบล็อกกลุ่ม 2]
+  var EC_M = {
+    1: [10, 1, 16, 0, 0],    2: [16, 1, 28, 0, 0],    3: [26, 1, 44, 0, 0],
+    4: [18, 2, 32, 0, 0],    5: [24, 2, 43, 0, 0],    6: [16, 4, 27, 0, 0],
+    7: [18, 4, 31, 0, 0],    8: [22, 2, 38, 2, 39],   9: [22, 3, 36, 2, 37],
+    10: [26, 4, 43, 1, 44],  11: [30, 1, 50, 4, 51],  12: [22, 6, 36, 2, 37],
+    13: [22, 8, 37, 1, 38],  14: [24, 4, 40, 5, 41],  15: [24, 5, 41, 5, 42],
+    16: [28, 7, 45, 3, 46],  17: [28, 10, 46, 1, 47], 18: [26, 9, 43, 4, 44],
+    19: [26, 3, 44, 11, 45], 20: [26, 3, 41, 13, 42]
+  };
+
+  // ตำแหน่งกึ่งกลางของ alignment pattern ในแต่ละเวอร์ชัน
+  var ALIGN = {
+    1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34],
+    7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
+    11: [6, 30, 54], 12: [6, 32, 58], 13: [6, 34, 62], 14: [6, 26, 46, 66],
+    15: [6, 26, 48, 70], 16: [6, 26, 50, 74], 17: [6, 30, 54, 78],
+    18: [6, 30, 56, 82], 19: [6, 30, 58, 86], 20: [6, 34, 62, 90]
+  };
+
+  function dataCapacity(version) {
+    var ec = EC_M[version];
+    return ec[1] * ec[2] + ec[3] * ec[4];
+  }
+
+  /* --------------------------------- บิตบัฟเฟอร์ --------------------------------- */
+  function BitBuffer() { this.bits = []; }
+  BitBuffer.prototype.put = function (value, length) {
+    for (var i = length - 1; i >= 0; i--) this.bits.push((value >>> i) & 1);
+  };
+  BitBuffer.prototype.length = function () { return this.bits.length; };
+  BitBuffer.prototype.toBytes = function () {
+    var bytes = [];
+    for (var i = 0; i < this.bits.length; i += 8) {
+      var b = 0;
+      for (var j = 0; j < 8; j++) b = (b << 1) | (this.bits[i + j] || 0);
+      bytes.push(b);
+    }
+    return bytes;
+  };
+
+  /** แปลงข้อความเป็นไบต์ UTF-8 */
+  function utf8Bytes(str) {
+    var out = [];
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) { out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f)); }
+      else if (c < 0xd800 || c >= 0xe000) { out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f)); }
+      else {
+        i++;
+        var cp = 0x10000 + (((c & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff));
+        out.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+      }
+    }
+    return out;
+  }
+
+  /* -------------------------------- สร้างข้อมูล -------------------------------- */
+  function buildCodewords(data, version) {
+    var ec = EC_M[version];
+    var capacity = dataCapacity(version);
+    var lenBits = version < 10 ? 8 : 16;
+
+    var buf = new BitBuffer();
+    buf.put(4, 4);                       // ตัวบ่งชี้โหมด Byte
+    buf.put(data.length, lenBits);       // จำนวนตัวอักษร
+    for (var i = 0; i < data.length; i++) buf.put(data[i], 8);
+
+    var totalBits = capacity * 8;
+    var term = Math.min(4, totalBits - buf.length());
+    if (term > 0) buf.put(0, term);
+    while (buf.length() % 8 !== 0) buf.bits.push(0);
+
+    var bytes = buf.toBytes();
+    var pad = [0xec, 0x11];
+    var p = 0;
+    while (bytes.length < capacity) bytes.push(pad[p++ % 2]);
+
+    // แบ่งเป็นบล็อกและคำนวณรหัสแก้ไขข้อผิดพลาด
+    var blocks = [];
+    var offset = 0;
+    for (var g = 0; g < 2; g++) {
+      var count = g === 0 ? ec[1] : ec[3];
+      var size = g === 0 ? ec[2] : ec[4];
+      for (var b = 0; b < count; b++) {
+        var chunk = bytes.slice(offset, offset + size);
+        offset += size;
+        blocks.push({ data: chunk, ec: rsEncode(chunk, ec[0]) });
+      }
+    }
+
+    // สลับข้อมูลระหว่างบล็อก (interleave) ตามมาตรฐาน
+    var result = [];
+    var maxData = Math.max(ec[2], ec[4] || 0);
+    for (var d = 0; d < maxData; d++) {
+      for (var bi = 0; bi < blocks.length; bi++) {
+        if (d < blocks[bi].data.length) result.push(blocks[bi].data[d]);
+      }
+    }
+    for (var e = 0; e < ec[0]; e++) {
+      for (var bj = 0; bj < blocks.length; bj++) result.push(blocks[bj].ec[e]);
+    }
+    return result;
+  }
+
+  /* --------------------------------- สร้างเมทริกซ์ --------------------------------- */
+  function createMatrix(version) {
+    var size = version * 4 + 17;
+    var m = [];
+    var reserved = [];
+    for (var r = 0; r < size; r++) {
+      m.push(new Array(size).fill(0));
+      reserved.push(new Array(size).fill(false));
+    }
+
+    function setFinder(row, col) {
+      for (var r = -1; r <= 7; r++) {
+        for (var c = -1; c <= 7; c++) {
+          var rr = row + r, cc = col + c;
+          if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+          var dark = (r >= 0 && r <= 6 && (c === 0 || c === 6)) ||
+                     (c >= 0 && c <= 6 && (r === 0 || r === 6)) ||
+                     (r >= 2 && r <= 4 && c >= 2 && c <= 4);
+          m[rr][cc] = dark ? 1 : 0;
+          reserved[rr][cc] = true;
+        }
+      }
+    }
+    setFinder(0, 0);
+    setFinder(0, size - 7);
+    setFinder(size - 7, 0);
+
+    // ลวดลายปรับตำแหน่ง (alignment pattern)
+    var centers = ALIGN[version] || [];
+    for (var i = 0; i < centers.length; i++) {
+      for (var j = 0; j < centers.length; j++) {
+        var cy = centers[i], cx = centers[j];
+        // ข้ามเฉพาะจุดที่ทับกับ finder pattern (ต้องวางก่อนเส้นจังหวะ
+        // เพราะ alignment ที่คร่อมแถว/คอลัมน์ที่ 6 ต้องอยู่ทับเส้นจังหวะ)
+        if (reserved[cy][cx]) continue;
+        for (var dy = -2; dy <= 2; dy++) {
+          for (var dx = -2; dx <= 2; dx++) {
+            var yy = cy + dy, xx = cx + dx;
+            m[yy][xx] = (Math.abs(dy) === 2 || Math.abs(dx) === 2 || (dy === 0 && dx === 0)) ? 1 : 0;
+            reserved[yy][xx] = true;
+          }
+        }
+      }
+    }
+
+    // เส้นจังหวะ (timing pattern)
+    for (var t = 8; t < size - 8; t++) {
+      if (!reserved[6][t]) { m[6][t] = t % 2 === 0 ? 1 : 0; reserved[6][t] = true; }
+      if (!reserved[t][6]) { m[t][6] = t % 2 === 0 ? 1 : 0; reserved[t][6] = true; }
+    }
+
+    // จุดดำบังคับ
+    m[size - 8][8] = 1;
+    reserved[size - 8][8] = true;
+
+    // จองพื้นที่สำหรับข้อมูลรูปแบบ (format information)
+    for (var f = 0; f <= 8; f++) {
+      if (f !== 6) { reserved[8][f] = true; reserved[f][8] = true; }
+    }
+    for (var f2 = 0; f2 < 8; f2++) {
+      reserved[8][size - 1 - f2] = true;
+      reserved[size - 1 - f2][8] = true;
+    }
+    reserved[8][6] = true;
+    reserved[6][8] = true;
+
+    // จองพื้นที่ข้อมูลเวอร์ชัน (เวอร์ชัน 7 ขึ้นไป)
+    if (version >= 7) {
+      for (var vr = 0; vr < 6; vr++) {
+        for (var vc = 0; vc < 3; vc++) {
+          reserved[size - 11 + vc][vr] = true;
+          reserved[vr][size - 11 + vc] = true;
+        }
+      }
+    }
+    return { matrix: m, reserved: reserved, size: size };
+  }
+
+  function placeData(state, codewords) {
+    var m = state.matrix, reserved = state.reserved, size = state.size;
+    var bitIndex = 0;
+    var totalBits = codewords.length * 8;
+
+    function nextBit() {
+      if (bitIndex >= totalBits) return 0;
+      var b = (codewords[bitIndex >> 3] >>> (7 - (bitIndex & 7))) & 1;
+      bitIndex++;
+      return b;
+    }
+
+    var col = size - 1;
+    var row = size - 1;
+    var upward = true;
+    while (col > 0) {
+      if (col === 6) col--;   // ข้ามคอลัมน์เส้นจังหวะ
+      for (var i = 0; i < size; i++) {
+        row = upward ? size - 1 - i : i;
+        for (var c = 0; c < 2; c++) {
+          var cc = col - c;
+          if (reserved[row][cc]) continue;
+          m[row][cc] = nextBit();
+        }
+      }
+      upward = !upward;
+      col -= 2;
+    }
+  }
+
+  var MASKS = [
+    function (r, c) { return (r + c) % 2 === 0; },
+    function (r) { return r % 2 === 0; },
+    function (r, c) { return c % 3 === 0; },
+    function (r, c) { return (r + c) % 3 === 0; },
+    function (r, c) { return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0; },
+    function (r, c) { return ((r * c) % 2) + ((r * c) % 3) === 0; },
+    function (r, c) { return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0; },
+    function (r, c) { return (((r + c) % 2) + ((r * c) % 3)) % 2 === 0; }
+  ];
+
+  function applyMask(state, maskIndex) {
+    var out = [];
+    for (var r = 0; r < state.size; r++) {
+      out.push(state.matrix[r].slice());
+      for (var c = 0; c < state.size; c++) {
+        if (!state.reserved[r][c] && MASKS[maskIndex](r, c)) out[r][c] ^= 1;
+      }
+    }
+    return out;
+  }
+
+  /** ข้อมูลรูปแบบ: ระดับ M = 00, ผ่าน BCH(15,5) แล้ว XOR ด้วย 0x5412 */
+  function formatBits(maskIndex) {
+    var data = (0 << 3) | maskIndex;   // 00 = ระดับ M
+    var value = data << 10;
+    for (var i = 4; i >= 0; i--) {
+      if ((value >>> (i + 10)) & 1) value ^= 0x537 << i;
+    }
+    return ((data << 10) | value) ^ 0x5412;
+  }
+
+  function versionBits(version) {
+    var value = version << 12;
+    for (var i = 5; i >= 0; i--) {
+      if ((value >>> (i + 12)) & 1) value ^= 0x1f25 << i;
+    }
+    return (version << 12) | value;
+  }
+
+  function placeFormat(matrix, size, maskIndex) {
+    var bits = formatBits(maskIndex);
+    // ลำดับบิตตามมาตรฐาน ISO/IEC 18004 — ข้อมูลรูปแบบถูกวางสองชุดซ้ำกัน
+    for (var i = 0; i < 15; i++) {
+      var bit = (bits >> i) & 1;
+
+      // ชุดที่ 1: แนวตั้งข้าง finder บนซ้าย ต่อลงไปยัง finder ล่างซ้าย
+      if (i < 6) matrix[i][8] = bit;
+      else if (i < 8) matrix[i + 1][8] = bit;
+      else matrix[size - 15 + i][8] = bit;
+
+      // ชุดที่ 2: แนวนอนใต้ finder บนขวา ต่อมายัง finder บนซ้าย
+      if (i < 8) matrix[8][size - i - 1] = bit;
+      else if (i < 9) matrix[8][15 - i] = bit;
+      else matrix[8][14 - i] = bit;
+    }
+    matrix[size - 8][8] = 1;   // จุดดำบังคับ
+  }
+
+  function placeVersion(matrix, size, version) {
+    if (version < 7) return;
+    var bits = versionBits(version);
+    for (var i = 0; i < 18; i++) {
+      var bit = (bits >> i) & 1;
+      var r = Math.floor(i / 3);
+      var c = i % 3;
+      matrix[size - 11 + c][r] = bit;
+      matrix[r][size - 11 + c] = bit;
+    }
+  }
+
+  /** ให้คะแนนโทษเพื่อเลือกหน้ากากที่อ่านง่ายที่สุด */
+  function penalty(matrix, size) {
+    var score = 0;
+    var r, c, i;
+
+    // กฎที่ 1: แถว/คอลัมน์ที่มีสีเดียวกันติดกัน 5 ช่องขึ้นไป
+    for (r = 0; r < size; r++) {
+      var runR = 1, runC = 1;
+      for (c = 1; c < size; c++) {
+        runR = matrix[r][c] === matrix[r][c - 1] ? runR + 1 : 1;
+        if (runR === 5) score += 3; else if (runR > 5) score += 1;
+        runC = matrix[c][r] === matrix[c - 1][r] ? runC + 1 : 1;
+        if (runC === 5) score += 3; else if (runC > 5) score += 1;
+      }
+    }
+
+    // กฎที่ 2: บล็อกสีเดียวกันขนาด 2x2
+    for (r = 0; r < size - 1; r++) {
+      for (c = 0; c < size - 1; c++) {
+        var v = matrix[r][c];
+        if (v === matrix[r][c + 1] && v === matrix[r + 1][c] && v === matrix[r + 1][c + 1]) score += 3;
+      }
+    }
+
+    // กฎที่ 3: รูปแบบคล้าย finder pattern
+    var patA = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0];
+    var patB = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+    function matches(get, start) {
+      var okA = true, okB = true;
+      for (var k = 0; k < 11; k++) {
+        var v2 = get(start + k);
+        if (v2 !== patA[k]) okA = false;
+        if (v2 !== patB[k]) okB = false;
+      }
+      return okA || okB;
+    }
+    for (r = 0; r < size; r++) {
+      for (c = 0; c <= size - 11; c++) {
+        /* eslint-disable no-loop-func */
+        if (matches(function (x) { return matrix[r][x]; }, c)) score += 40;
+        if (matches(function (x) { return matrix[x][r]; }, c)) score += 40;
+        /* eslint-enable no-loop-func */
+      }
+    }
+
+    // กฎที่ 4: สัดส่วนสีดำ-ขาวต่างจาก 50% มากเกินไป
+    var dark = 0;
+    for (r = 0; r < size; r++) for (c = 0; c < size; c++) dark += matrix[r][c];
+    var percent = (dark * 100) / (size * size);
+    score += Math.floor(Math.abs(percent - 50) / 5) * 10;
+    return score;
+  }
+
+  /**
+   * สร้างเมทริกซ์ QR จากข้อความ
+   * @returns {{size:number, modules:Array<Array<number>>}}
+   */
+  function encode(text, forceMask) {
+    var data = utf8Bytes(String(text));
+    var version = 0;
+    for (var v = 1; v <= 20; v++) {
+      var lenBits = v < 10 ? 8 : 16;
+      var needed = Math.ceil((4 + lenBits + data.length * 8) / 8);
+      if (needed <= dataCapacity(v)) { version = v; break; }
+    }
+    if (!version) throw new Error('ข้อมูลยาวเกินกว่าที่จะสร้าง QR ได้');
+
+    var codewords = buildCodewords(data, version);
+    var state = createMatrix(version);
+    placeData(state, codewords);
+
+    var best = null, bestScore = Infinity, bestMask = 0;
+    var from = forceMask === undefined ? 0 : forceMask;
+    var to = forceMask === undefined ? 7 : forceMask;
+    for (var mask = from; mask <= to; mask++) {
+      var candidate = applyMask(state, mask);
+      placeFormat(candidate, state.size, mask);
+      placeVersion(candidate, state.size, version);
+      var sc = penalty(candidate, state.size);
+      if (sc < bestScore) { bestScore = sc; best = candidate; bestMask = mask; }
+    }
+    return { size: state.size, modules: best, version: version, mask: bestMask };
+  }
+
+  /** วาด QR ลงบน canvas แล้วคืนค่าเป็น data URL */
+  function toDataUrl(text, pixelSize, margin) {
+    var qr = encode(text);
+    margin = margin === undefined ? 4 : margin;
+    var total = qr.size + margin * 2;
+    var scale = Math.max(2, Math.floor((pixelSize || 320) / total));
+    var canvas = document.createElement('canvas');
+    canvas.width = canvas.height = total * scale;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0f172a';
+    for (var r = 0; r < qr.size; r++) {
+      for (var c = 0; c < qr.size; c++) {
+        if (qr.modules[r][c]) {
+          ctx.fillRect((c + margin) * scale, (r + margin) * scale, scale, scale);
+        }
+      }
+    }
+    return canvas.toDataURL('image/png');
+  }
+
+  return {
+    encode: encode,
+    toDataUrl: toDataUrl,
+    // เปิดไว้สำหรับการทดสอบความถูกต้องเท่านั้น
+    _internal: {
+      buildCodewords: buildCodewords, createMatrix: createMatrix,
+      placeData: placeData, utf8Bytes: utf8Bytes, dataCapacity: dataCapacity,
+      applyMask: applyMask, formatBits: formatBits, MASKS: MASKS
+    }
+  };
+})();
+</script>

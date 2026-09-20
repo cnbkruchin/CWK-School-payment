@@ -1,0 +1,3146 @@
+/* ===========================================================================
+ *  หน้าจอทั้งหมดของระบบผู้ดูแล
+ *  (ไฟล์นี้ถูกแทรกเข้าไปใน <script> ของ Admin.html)
+ * =========================================================================== */
+
+/* ================================ แดชบอร์ด ================================ */
+route('dashboard', function (view) {
+  return call('apiDashboard', {}).then(function (d) {
+    var s = d.stats;
+    view.innerHTML = '';
+    view.appendChild(pageHead('แดชบอร์ด',
+      'ภาพรวมการรับชำระเงินทั้งระบบ • ข้อมูล ณ ' + thaiDate(new Date(), { withTime: true }),
+      [el('button', { class: 'btn btn-sm', type: 'button', text: '🔄 รีเฟรช', onclick: reload })]));
+
+    if (s.pending_payments > 0) {
+      view.appendChild(el('div', { class: 'alert alert-warn', style: 'margin-bottom:1rem' }, [
+        el('div', { class: 'grow' }, [
+          el('strong', { text: 'มี ' + s.pending_payments + ' รายการรอการตรวจสอบ ' }),
+          'กรุณาตรวจสอบสลิปและยืนยันการชำระเงิน'
+        ]),
+        el('button', { class: 'btn btn-sm btn-amber', type: 'button', text: 'ไปตรวจสอบ', onclick: function () { navigate('payments'); } })
+      ]));
+    }
+
+    view.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+      statCard('ยอดที่ต้องจัดเก็บ', money(s.total_due), 'บาท', 'is-blue', s.total_members + ' รายการ'),
+      statCard('ยอดที่เก็บได้แล้ว', money(s.total_paid), 'บาท', 'is-green', s.percent_paid + '% ของยอดทั้งหมด'),
+      statCard('ยอดค้างชำระ', money(s.total_outstanding), 'บาท', 'is-red', (s.count_unpaid + s.count_rejected) + ' รายการ'),
+      statCard('รอตรวจสอบ', s.pending_payments, 'รายการ', 'is-amber', money(s.total_pending) + ' บาท')
+    ]));
+
+    view.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+      statCard('สมาชิกทั้งหมด', s.total_active_members, 'คน', ''),
+      statCard('รายการจัดเก็บ', s.total_collections, 'รายการ', '', 'เปิดรับชำระ ' + s.open_collections + ' รายการ'),
+      statCard('ชำระครบแล้ว', s.count_paid, 'รายการ', 'is-green'),
+      statCard('ยกเว้นการชำระ', s.count_waived, 'รายการ', '')
+    ]));
+
+    var left = el('section', { class: 'card card-pad-0' }, [
+      el('div', { class: 'card-head' }, [
+        el('h2', { style: 'font-size:1.05rem', text: 'ความคืบหน้ารายการจัดเก็บ' }),
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'ดูทั้งหมด', onclick: function () { navigate('collections'); } })
+      ])
+    ]);
+    if (!d.by_collection.length) {
+      left.appendChild(emptyState('📋', 'ยังไม่มีรายการจัดเก็บ', 'เริ่มต้นด้วยการสร้างรายการจัดเก็บแรกของท่าน',
+        canWrite() ? el('button', { class: 'btn btn-primary', type: 'button', text: '+ สร้างรายการจัดเก็บ', onclick: function () { navigate('collections'); } }) : null));
+    } else {
+      var body = el('div', { class: 'card-body', style: 'display:grid;gap:.9rem' });
+      d.by_collection.forEach(function (c) {
+        var cs = c.summary;
+        body.appendChild(el('div', { style: 'cursor:pointer', onclick: function () { navigate('collections', { id: c.id }); } }, [
+          el('div', { class: 'row-between', style: 'margin-bottom:.25rem' }, [
+            el('span', { class: 'bold small', text: c.name }),
+            el('span', { class: 'badge badge-' + c.status, text: c.status === 'open' ? 'เปิดรับชำระ' : 'ปิดรับชำระ' })
+          ]),
+          el('div', { class: 'progress' }, [el('span', { style: 'width:' + Math.min(100, cs.percent_paid) + '%' })]),
+          el('div', { class: 'row-between tiny muted', style: 'margin-top:.22rem' }, [
+            el('span', { text: money(cs.total_paid) + ' / ' + money(cs.total_due) + ' บาท' }),
+            el('span', { text: 'ชำระแล้ว ' + cs.count_paid + '/' + cs.total_members + ' คน (' + cs.percent_paid + '%)' })
+          ])
+        ]));
+      });
+      left.appendChild(body);
+    }
+
+    var right = el('section', { class: 'card card-pad-0' }, [
+      el('div', { class: 'card-head' }, [
+        el('h2', { style: 'font-size:1.05rem', text: 'การแจ้งชำระล่าสุด' }),
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'ดูทั้งหมด', onclick: function () { navigate('payments'); } })
+      ])
+    ]);
+    if (!d.recent.length) right.appendChild(emptyState('🧾', 'ยังไม่มีการแจ้งชำระเงิน'));
+    else {
+      right.appendChild(el('div', { class: 'table-wrap' }, [
+        el('table', { class: 'data' }, [
+          el('tbody', {}, d.recent.map(function (p) {
+            return el('tr', { style: 'cursor:pointer', onclick: function () { navigate('payments', { id: p.id }); } }, [
+              el('td', {}, [
+                el('div', { class: 'bold small', text: p.full_name }),
+                el('div', { class: 'tiny muted', text: p.collection_name })
+              ]),
+              el('td', { class: 'num small', text: money(p.amount) }),
+              el('td', { class: 'mid' }, [
+                statusBadge(p.status === 'approved' ? 'paid' : p.status === 'rejected' ? 'rejected' : 'pending', p.status_label),
+                el('div', { class: 'tiny muted', text: relativeTime(p.created_at) })
+              ])
+            ]);
+          }))
+        ])
+      ]));
+    }
+
+    view.appendChild(el('div', { class: 'grid grid-2' }, [left, right]));
+
+    if (d.trend.length) {
+      view.appendChild(el('section', { class: 'card', style: 'margin-top:1rem' }, [
+        el('h2', { style: 'font-size:1.05rem', text: 'ยอดรับชำระย้อนหลัง 12 เดือน' }),
+        barChart(d.trend)
+      ]));
+    }
+
+    var groups = d.by_group.filter(function (g) { return g.assignments > 0; });
+    if (groups.length) {
+      view.appendChild(el('section', { class: 'card card-pad-0', style: 'margin-top:1rem' }, [
+        el('div', { class: 'card-head' }, [el('h2', { style: 'font-size:1.05rem', text: 'สรุปตามกลุ่ม/ชั้นเรียน' })]),
+        el('div', { class: 'table-wrap' }, [
+          el('table', { class: 'data cards' }, [
+            el('thead', {}, [el('tr', {}, [
+              el('th', { text: 'กลุ่ม/ชั้น' }), el('th', { class: 'num', text: 'รายการ' }),
+              el('th', { class: 'num', text: 'ยอดที่ต้องเก็บ' }), el('th', { class: 'num', text: 'เก็บได้' }),
+              el('th', { class: 'num', text: 'คงค้าง' }), el('th', { style: 'min-width:120px', text: 'ความคืบหน้า' })
+            ])]),
+            el('tbody', {}, groups.map(function (g) {
+              var pct = g.due > 0 ? Math.round((g.paid / g.due) * 1000) / 10 : 0;
+              return el('tr', {}, [
+                el('td', { 'data-label': 'กลุ่ม/ชั้น', class: 'bold', text: g.name }),
+                el('td', { class: 'num', 'data-label': 'รายการ', text: String(g.assignments) }),
+                el('td', { class: 'num', 'data-label': 'ยอดที่ต้องเก็บ', text: money(g.due) }),
+                el('td', { class: 'num', 'data-label': 'เก็บได้', text: money(g.paid) }),
+                el('td', { class: 'num', 'data-label': 'คงค้าง', text: money(Math.max(0, g.due - g.paid)) }),
+                el('td', { 'data-label': 'ความคืบหน้า' }, [
+                  el('div', { class: 'progress' }, [el('span', { style: 'width:' + Math.min(100, pct) + '%' })]),
+                  el('div', { class: 'tiny muted', text: pct + '%' })
+                ])
+              ]);
+            }))
+          ])
+        ])
+      ]));
+    }
+  });
+});
+
+/** กราฟแท่ง SVG อย่างง่าย (ไม่ต้องพึ่งไลบรารีภายนอก) */
+function barChart(trend) {
+  var W = 760, H = 240, padL = 62, padR = 12, padT = 16, padB = 42;
+  var innerW = W - padL - padR, innerH = H - padT - padB;
+  var max = 1;
+  trend.forEach(function (t) { max = Math.max(max, Number(t.total) || 0); });
+  var niceMax = Math.ceil(max / 1000) * 1000 || max;
+  var step = innerW / trend.length;
+  var bw = Math.min(56, step * 0.62);
+  var ns = 'http://www.w3.org/2000/svg';
+
+  var svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('class', 'chart');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'กราฟยอดรับชำระรายเดือน');
+
+  function mk(tag, attrs, text) {
+    var n = document.createElementNS(ns, tag);
+    for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) n.setAttribute(k, attrs[k]);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  for (var i = 0; i <= 4; i++) {
+    var y = padT + (innerH / 4) * i;
+    svg.appendChild(mk('line', { x1: padL, y1: y, x2: W - padR, y2: y, class: 'grid-line' }));
+    svg.appendChild(mk('text', { x: padL - 8, y: y + 4, 'text-anchor': 'end' }, money(niceMax - (niceMax / 4) * i, 0)));
+  }
+
+  trend.forEach(function (t, i2) {
+    var val = Number(t.total) || 0;
+    var h = Math.max(2, (val / niceMax) * innerH);
+    var x = padL + step * i2 + (step - bw) / 2;
+    var y2 = padT + innerH - h;
+    var bar = mk('rect', { x: x, y: y2, width: bw, height: h, rx: 4, class: 'bar' });
+    bar.appendChild(mk('title', {}, monthLabel(t.ym) + ': ' + money(val) + ' บาท (' + t.cnt + ' รายการ)'));
+    svg.appendChild(bar);
+    svg.appendChild(mk('text', { x: x + bw / 2, y: H - padB + 18, 'text-anchor': 'middle' }, monthLabel(t.ym)));
+  });
+  return svg;
+}
+
+function monthLabel(ym) {
+  var parts = String(ym).split('-');
+  var y = Number(parts[0]), m = Number(parts[1]);
+  return TH_MONTHS_SHORT[(m || 1) - 1] + ' ' + String((y + 543) % 100);
+}
+
+/* ============================ ตรวจสอบการชำระเงิน ============================ */
+var payFilters = { status: 'pending', collection: '', group: '', q: '', page: 1 };
+
+route('payments', function (view, params) {
+  if (params && params.id) return renderPaymentDetail(view, params.id);
+
+  view.innerHTML = '';
+  view.appendChild(pageHead('ตรวจสอบการชำระเงิน', 'ตรวจสอบสลิปที่สมาชิกแจ้งเข้ามา แล้วยืนยันหรือปฏิเสธการชำระ', [
+    canWrite() ? el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '+ บันทึกชำระเงินสด', onclick: openManualPayment }) : null,
+    el('button', { class: 'btn btn-sm', type: 'button', text: '🔄 รีเฟรช', onclick: reload })
+  ]));
+  var card = el('section', { class: 'card card-pad-0' }, [
+    el('div', { id: 'payFilters' }), el('div', { id: 'payList' })
+  ]);
+  view.appendChild(card);
+  return loadPayments();
+});
+
+function loadPayments() {
+  var list = $('#payList');
+  if (!list) return Promise.resolve();
+  list.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังโหลด...</div>';
+
+  return Promise.all([
+    call('apiPayments', payFilters),
+    call('apiCollections', {}),
+    call('apiGroups', {})
+  ]).then(function (res) {
+    var data = res[0];
+    ADMIN.pendingCount = data.counts.pending;
+    buildNav();
+    renderPayFilters(res[1].collections, res[2].groups, data.counts);
+
+    list.innerHTML = '';
+    if (!data.payments.length) {
+      list.appendChild(emptyState('🧾', 'ไม่พบรายการแจ้งชำระ',
+        payFilters.status === 'pending' ? 'ไม่มีรายการที่รอการตรวจสอบในขณะนี้' : 'ลองปรับตัวกรองการค้นหา'));
+      return;
+    }
+
+    var selected = {};
+    var bulkBar = el('div', { class: 'hidden', id: 'bulkBar', style: 'padding:.7rem 1.1rem;background:var(--brand-50);border-bottom:1px solid var(--brand-200)' });
+    list.appendChild(bulkBar);
+
+    function countSel() { return Object.keys(selected).length; }
+    function updateBulk() {
+      var n = countSel();
+      if (!n) { bulkBar.className = 'hidden'; return; }
+      bulkBar.className = 'row-between';
+      bulkBar.innerHTML = '';
+      bulkBar.appendChild(el('span', { class: 'bold small', text: 'เลือกไว้ ' + n + ' รายการ' }));
+      bulkBar.appendChild(el('div', { class: 'row', style: 'gap:.4rem' }, [
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'ยกเลิกการเลือก', onclick: function () {
+          selected = {};
+          $$('.row-check', list).forEach(function (cb) { cb.checked = false; cb.closest('tr').classList.remove('is-selected'); });
+          updateBulk();
+        }}),
+        canWrite() ? el('button', { class: 'btn btn-sm btn-green', type: 'button', text: '✓ อนุมัติทั้งหมด (' + n + ')', onclick: function () {
+          bulkApprove(Object.keys(selected).map(Number));
+        }}) : null
+      ]));
+    }
+
+    var tbody = el('tbody');
+    data.payments.forEach(function (p) {
+      var cb = el('input', { type: 'checkbox', class: 'row-check', value: String(p.id), onchange: function (e) {
+        if (e.target.checked) selected[p.id] = true; else delete selected[p.id];
+        e.target.closest('tr').classList.toggle('is-selected', e.target.checked);
+        updateBulk();
+      }});
+      tbody.appendChild(el('tr', {}, [
+        el('td', { class: 'mid', 'data-label': '' }, [
+          (p.status === 'pending' && canWrite()) ? cb : el('span', { class: 'tiny muted', text: '—' })
+        ]),
+        el('td', { 'data-label': 'เลขอ้างอิง' }, [
+          el('div', { class: 'mono bold', style: 'font-size:1.05rem', text: p.ref_code }),
+          p.receipt_no ? el('div', { class: 'tiny muted', text: 'ใบเสร็จ ' + p.receipt_no }) : null
+        ]),
+        el('td', { 'data-label': 'สมาชิก' }, [
+          el('div', { class: 'bold', text: p.full_name }),
+          el('div', { class: 'tiny muted' }, [
+            el('span', { class: 'mono', text: p.member_code }),
+            p.group_name ? el('span', { text: ' • ' + p.group_name }) : null
+          ])
+        ]),
+        el('td', { 'data-label': 'รายการจัดเก็บ', class: 'small', text: p.collection_name }),
+        el('td', { class: 'num bold', 'data-label': 'จำนวนเงิน', text: money(p.amount) }),
+        el('td', { 'data-label': 'วันที่แจ้ง', class: 'small' }, [
+          el('div', { text: thaiDate(p.created_at, { short: true, withTime: true }) }),
+          el('div', { class: 'tiny muted', text: relativeTime(p.created_at) })
+        ]),
+        el('td', { class: 'mid', 'data-label': 'สถานะ' }, [
+          el('span', { class: 'badge badge-' + (p.status === 'approved' ? 'paid' : p.status === 'rejected' ? 'rejected' : p.status === 'cancelled' ? 'cancelled' : 'pending'), text: p.status_label }),
+          p.reject_reason ? el('div', { class: 'tiny', style: 'color:var(--red-600)', text: p.reject_reason }) : null
+        ]),
+        el('td', { class: 'mid cell-full', 'data-label': '' }, [
+          el('button', { class: 'btn btn-sm btn-primary', type: 'button',
+            text: p.status === 'pending' ? '🔍 ตรวจสอบ' : 'ดูรายละเอียด',
+            onclick: function () { navigate('payments', { id: p.id }); } })
+        ])
+      ]));
+    });
+
+    list.appendChild(el('div', { class: 'table-wrap' }, [
+      el('table', { class: 'data cards' }, [
+        el('thead', {}, [el('tr', {}, [
+          el('th', { class: 'mid', style: 'width:40px' }),
+          el('th', { text: 'เลขอ้างอิง' }), el('th', { text: 'สมาชิก' }),
+          el('th', { text: 'รายการจัดเก็บ' }), el('th', { class: 'num', text: 'จำนวนเงิน' }),
+          el('th', { text: 'วันที่แจ้ง' }), el('th', { class: 'mid', text: 'สถานะ' }),
+          el('th', { class: 'mid', style: 'width:130px' })
+        ])]),
+        tbody
+      ])
+    ]));
+
+    var pg = pager(data, function (p) { payFilters.page = p; loadPayments(); });
+    if (pg) list.appendChild(pg);
+  });
+}
+
+function renderPayFilters(collections, groups, counts) {
+  var box = $('#payFilters');
+  if (!box) return;
+  box.innerHTML = '';
+
+  function tab(val, label, count) {
+    return el('button', {
+      class: 'tab' + (payFilters.status === val ? ' active' : ''), type: 'button',
+      onclick: function () { payFilters.status = val; payFilters.page = 1; loadPayments(); }
+    }, [label, count !== undefined ? el('span', { class: 'chip', style: 'margin-inline-start:.35rem', text: String(count) }) : null]);
+  }
+
+  box.appendChild(el('div', { class: 'tabs', style: 'margin:0;padding:0 1.1rem' }, [
+    tab('pending', 'รอตรวจสอบ', counts.pending),
+    tab('approved', 'ชำระแล้ว', counts.approved),
+    tab('rejected', 'ไม่ผ่าน', counts.rejected),
+    tab('', 'ทั้งหมด')
+  ]));
+
+  box.appendChild(el('div', { class: 'filters' }, [
+    el('div', { class: 'field' }, [
+      el('label', { text: 'ค้นหา' }),
+      el('input', { type: 'search', placeholder: 'เลขอ้างอิง / ชื่อ / รหัสสมาชิก', value: payFilters.q,
+        oninput: debounce(function (e) { payFilters.q = e.target.value; payFilters.page = 1; loadPayments(); }, 350) })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'รายการจัดเก็บ' }),
+      el('select', { onchange: function (e) { payFilters.collection = e.target.value; payFilters.page = 1; loadPayments(); } },
+        [el('option', { value: '', text: 'ทุกรายการ' })].concat(collections.map(function (c) {
+          return el('option', { value: String(c.id), text: c.name, selected: String(c.id) === payFilters.collection });
+        })))
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'กลุ่ม/ชั้น' }),
+      el('select', { onchange: function (e) { payFilters.group = e.target.value; payFilters.page = 1; loadPayments(); } },
+        [el('option', { value: '', text: 'ทุกกลุ่ม' })].concat(groups.map(function (g) {
+          return el('option', { value: String(g.id), text: g.name, selected: String(g.id) === payFilters.group });
+        })))
+    ])
+  ]));
+}
+
+function renderPaymentDetail(view, id) {
+  return call('apiPayment', { id: id }).then(function (d) {
+    var p = d.payment;
+    var a = d.assignment;
+    view.innerHTML = '';
+    view.appendChild(pageHead('ตรวจสอบการชำระเงิน — ' + p.ref_code, p.full_name + ' • ' + p.collection_name, [
+      el('button', { class: 'btn btn-sm', type: 'button', text: '← กลับรายการ', onclick: function () { navigate('payments'); } })
+    ]));
+
+    if (d.duplicates.length) {
+      view.appendChild(el('div', { class: 'alert alert-warn', style: 'margin-bottom:1rem' }, [
+        el('div', {}, [
+          el('strong', { text: '⚠ พบสลิปนี้ถูกใช้ซ้ำ! ' }),
+          'ไฟล์สลิปเดียวกันนี้ถูกใช้แจ้งชำระอีก ' + d.duplicates.length + ' ครั้ง: ' +
+          d.duplicates.map(function (x) { return x.ref_code + ' (' + x.member_code + ')'; }).join(', ') +
+          ' — กรุณาตรวจสอบอย่างละเอียดก่อนอนุมัติ'
+        ])
+      ]));
+    }
+
+    var slipBox = el('div', { id: 'slipArea' });
+    var slipCard = el('section', { class: 'card' }, [
+      el('div', { class: 'row-between', style: 'margin-bottom:.6rem' }, [
+        el('h2', { style: 'font-size:1.05rem;margin:0', text: 'สลิปการโอนเงิน' })
+      ]),
+      slipBox
+    ]);
+
+    if (p.has_slip) {
+      slipBox.appendChild(el('div', { class: 'loading', style: 'padding:2rem' }, [el('span', { class: 'spinner' }), ' กำลังโหลดสลิป...']));
+      call('apiPaymentSlip', { id: p.id }).then(function (f) {
+        slipBox.innerHTML = '';
+        if (f.mime === 'application/pdf') {
+          slipBox.appendChild(el('iframe', { src: f.data_url, class: 'slip-frame', style: 'height:70vh', title: 'สลิป PDF' }));
+        } else {
+          slipBox.appendChild(el('img', { src: f.data_url, class: 'slip-frame', alt: 'สลิป ' + p.ref_code }));
+        }
+        slipBox.appendChild(el('div', { class: 'row', style: 'gap:.35rem;margin-top:.6rem' }, [
+          el('a', { class: 'btn btn-sm grow', href: f.data_url, target: '_blank', rel: 'noopener', text: '🔍 เปิดเต็มจอ' }),
+          el('a', { class: 'btn btn-sm grow', href: f.data_url, download: 'slip-' + p.ref_code, text: '⬇ ดาวน์โหลด' })
+        ]));
+      }).catch(function (e) {
+        slipBox.innerHTML = '';
+        slipBox.appendChild(el('div', { class: 'alert alert-warn' }, [e.message]));
+      });
+    } else {
+      slipBox.appendChild(emptyState('📎', 'ไม่มีไฟล์สลิป', 'อาจเป็นการบันทึกโดยผู้ดูแลระบบ'));
+    }
+
+    var infoCard = el('section', { class: 'card stack' }, [
+      el('div', { class: 'center', style: 'padding-bottom:.5rem' }, [
+        el('div', { class: 'ref-code', style: 'font-size:2.4rem', text: p.ref_code }),
+        el('span', { class: 'badge badge-' + (p.status === 'approved' ? 'paid' : p.status === 'rejected' ? 'rejected' : p.status === 'cancelled' ? 'cancelled' : 'pending'), text: p.status_label })
+      ]),
+      el('hr', { class: 'divider' }),
+      el('dl', { class: 'kv' }, [
+        el('dt', { text: 'สมาชิก' }), el('dd', { text: p.full_name + ' (' + p.member_code + ')' }),
+        p.group_name ? el('dt', { text: 'กลุ่ม/ชั้น' }) : null,
+        p.group_name ? el('dd', { text: p.group_name }) : null,
+        p.phone ? el('dt', { text: 'เบอร์โทร' }) : null,
+        p.phone ? el('dd', { class: 'mono', text: p.phone }) : null,
+        el('dt', { text: 'รายการจัดเก็บ' }), el('dd', { text: p.collection_name + ' (' + p.collection_code + ')' }),
+        el('dt', { text: 'ยอดที่ต้องชำระ' }), el('dd', { text: money(a ? a.net_due : 0) + ' บาท' }),
+        el('dt', { text: 'ชำระแล้ว (อนุมัติ)' }), el('dd', { text: money(a ? a.paid_amount : 0) + ' บาท' }),
+        el('dt', { text: 'จำนวนเงินที่แจ้ง' }),
+        el('dd', { style: 'font-size:1.2rem;font-weight:800;color:var(--brand-600)', text: money(p.amount) + ' บาท' }),
+        p.payer_name ? el('dt', { text: 'ชื่อผู้โอน' }) : null,
+        p.payer_name ? el('dd', { text: p.payer_name }) : null,
+        p.transferred_at ? el('dt', { text: 'วัน-เวลาที่โอน' }) : null,
+        p.transferred_at ? el('dd', { text: thaiDate(p.transferred_at, { withTime: true }) }) : null,
+        p.bank_name ? el('dt', { text: 'บัญชีรับโอน' }) : null,
+        p.bank_name ? el('dd', { text: p.bank_name + ' ' + (p.account_number || '') }) : null,
+        el('dt', { text: 'วันที่แจ้ง' }), el('dd', { text: thaiDate(p.created_at, { withTime: true }) }),
+        p.verified_at ? el('dt', { text: 'ตรวจสอบเมื่อ' }) : null,
+        p.verified_at ? el('dd', { text: thaiDate(p.verified_at, { withTime: true }) }) : null,
+        p.verified_by_name ? el('dt', { text: 'ผู้ตรวจสอบ' }) : null,
+        p.verified_by_name ? el('dd', { text: p.verified_by_name }) : null,
+        p.receipt_no ? el('dt', { text: 'เลขที่ใบเสร็จ' }) : null,
+        p.receipt_no ? el('dd', { class: 'mono', text: p.receipt_no }) : null,
+        p.note ? el('dt', { text: 'หมายเหตุ' }) : null,
+        p.note ? el('dd', { text: p.note }) : null,
+        p.slip_size ? el('dt', { text: 'ไฟล์สลิป' }) : null,
+        p.slip_size ? el('dd', { class: 'small muted', text: p.slip_mime + ' • ' + fileSize(p.slip_size) }) : null
+      ]),
+      p.reject_reason ? el('div', { class: 'alert alert-error' }, [
+        el('div', {}, [el('strong', { text: 'เหตุผลที่ไม่อนุมัติ: ' }), p.reject_reason])
+      ]) : null
+    ]);
+
+    if (d.items.length) {
+      infoCard.appendChild(el('details', { style: 'margin-top:.5rem' }, [
+        el('summary', { style: 'cursor:pointer;font-weight:700;font-size:.9rem', text: 'กิจกรรมย่อยที่ต้องชำระ (' + d.items.length + ')' }),
+        el('div', { class: 'table-wrap', style: 'margin-top:.4rem' }, [
+          el('table', { class: 'data' }, [
+            el('tbody', {}, d.items.map(function (it) {
+              return el('tr', {}, [el('td', { text: it.name }), el('td', { class: 'num', text: money(it.amount) })]);
+            }))
+          ])
+        ])
+      ]));
+    }
+
+    if (canWrite()) {
+      var actions = el('div', { class: 'row no-print', style: 'gap:.5rem;margin-top:.5rem' });
+      if (p.status === 'pending') {
+        actions.appendChild(el('button', { class: 'btn btn-green grow btn-lg', type: 'button', text: '✓ อนุมัติการชำระเงิน', onclick: function () { approvePayment(p, a); } }));
+        actions.appendChild(el('button', { class: 'btn btn-red grow btn-lg', type: 'button', text: '✕ ไม่อนุมัติ', onclick: function () { rejectPayment(p); } }));
+      } else if (p.status === 'approved') {
+        actions.appendChild(el('button', { class: 'btn btn-primary grow', type: 'button', text: '🧾 พิมพ์ใบเสร็จ', onclick: function () { printReceipt(p.id); } }));
+        actions.appendChild(el('button', { class: 'btn grow', type: 'button', text: '↩ คืนสถานะเป็นรอตรวจสอบ', onclick: function () { revertPayment(p); } }));
+      } else if (p.status === 'rejected') {
+        actions.appendChild(el('button', { class: 'btn btn-green grow', type: 'button', text: '✓ อนุมัติแทน', onclick: function () { approvePayment(p, a); } }));
+        actions.appendChild(el('button', { class: 'btn grow', type: 'button', text: '↩ คืนสถานะเป็นรอตรวจสอบ', onclick: function () { revertPayment(p); } }));
+      }
+      infoCard.appendChild(actions);
+    }
+
+    if (d.history.length > 1) {
+      infoCard.appendChild(el('div', { style: 'margin-top:.5rem' }, [
+        el('div', { class: 'label', text: 'ประวัติการแจ้งชำระของรายการนี้' }),
+        el('div', { class: 'table-wrap' }, [
+          el('table', { class: 'data' }, [
+            el('tbody', {}, d.history.map(function (h) {
+              return el('tr', { style: h.id === p.id ? 'background:var(--brand-50)' : '' }, [
+                el('td', {}, [el('button', { class: 'btn btn-ghost btn-sm mono bold', type: 'button', text: h.ref_code, onclick: function () { navigate('payments', { id: h.id }); } })]),
+                el('td', { class: 'num', text: money(h.amount) }),
+                el('td', { class: 'small', text: thaiDate(h.created_at, { short: true }) }),
+                el('td', { class: 'mid small', text: h.status_label })
+              ]);
+            }))
+          ])
+        ])
+      ]));
+    }
+
+    view.appendChild(el('div', { class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(340px,1fr))' }, [slipCard, infoCard]));
+  });
+}
+
+function approvePayment(p, a) {
+  if (needWrite()) return;
+  var maxAllowed = a ? (a.net_due - a.paid_amount) : p.amount;
+  var form = el('form', { id: 'apForm' }, [
+    el('div', { class: 'alert alert-info', style: 'margin-bottom:1rem' },
+      ['ยืนยันการชำระเงินของ ' + p.full_name + ' จำนวน ' + money(p.amount) + ' บาท — สถานะจะเปลี่ยนเป็น "ชำระแล้ว" และระบบจะออกเลขที่ใบเสร็จอัตโนมัติ']),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'apAmount', text: 'จำนวนเงินที่อนุมัติ (บาท)' }),
+      el('input', { type: 'number', id: 'apAmount', step: '0.01', min: '0.01', max: String(maxAllowed), value: String(p.amount) }),
+      el('div', { class: 'hint', text: 'แก้ไขได้หากยอดในสลิปไม่ตรงกับที่แจ้ง (สูงสุด ' + money(maxAllowed) + ' บาท)' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'apNote', text: 'หมายเหตุ (ถ้ามี)' }),
+      el('input', { type: 'text', id: 'apNote', maxlength: '500' })
+    ])
+  ]);
+  var btn = el('button', { class: 'btn btn-green', type: 'submit', form: 'apForm', text: '✓ ยืนยันอนุมัติ' });
+  var m = modal({ title: 'อนุมัติการชำระเงิน', body: form, size: 'modal-sm',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true, 'กำลังอนุมัติ...');
+    call('apiApprovePayment', { id: p.id, amount: $('#apAmount', form).value, note: $('#apNote', form).value })
+      .then(function (r) { m.close(); toast(r.message, 'success', 5000); refreshPending(); reload(); })
+      .catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+  });
+}
+
+function rejectPayment(p) {
+  if (needWrite()) return;
+  var REASONS = ['สลิปไม่ชัดเจน อ่านไม่ออก', 'จำนวนเงินไม่ตรงกับที่ต้องชำระ', 'ไม่พบรายการโอนเข้าบัญชี', 'สลิปซ้ำกับรายการอื่น', 'โอนผิดบัญชี'];
+  var form = el('form', { id: 'rjForm' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'rjReason', text: 'เหตุผลที่ไม่อนุมัติ' }),
+      el('textarea', { id: 'rjReason', required: true, maxlength: '500', rows: '3', placeholder: 'ระบุเหตุผลเพื่อให้สมาชิกทราบและแจ้งใหม่ได้ถูกต้อง' })
+    ]),
+    el('div', { class: 'label', text: 'เหตุผลที่ใช้บ่อย' }),
+    el('div', { class: 'row', style: 'gap:.35rem' }, REASONS.map(function (r) {
+      return el('button', { class: 'btn btn-sm', type: 'button', text: r, onclick: function () { $('#rjReason', form).value = r; } });
+    }))
+  ]);
+  var btn = el('button', { class: 'btn btn-red', type: 'submit', form: 'rjForm', text: '✕ ยืนยันไม่อนุมัติ' });
+  var m = modal({ title: 'ไม่อนุมัติการชำระเงิน', body: form, size: 'modal-sm',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true, 'กำลังบันทึก...');
+    call('apiRejectPayment', { id: p.id, reason: $('#rjReason', form).value })
+      .then(function () { m.close(); toast('บันทึกการไม่อนุมัติแล้ว สมาชิกสามารถแจ้งชำระใหม่ได้', 'success'); refreshPending(); reload(); })
+      .catch(function (ex) { toast(ex.message, 'error'); busy(btn, false); });
+  });
+}
+
+function revertPayment(p) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'คืนสถานะเป็นรอตรวจสอบ',
+    message: 'ต้องการคืนสถานะของเลขอ้างอิง ' + p.ref_code + ' เป็น "รอตรวจสอบ" ใช่หรือไม่? (เลขที่ใบเสร็จเดิมจะถูกยกเลิก)',
+    confirmText: 'คืนสถานะ'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiRevertPayment', { id: p.id })
+      .then(function () { toast('คืนสถานะเรียบร้อยแล้ว', 'success'); refreshPending(); reload(); })
+      .catch(function (e) { toast(e.message, 'error'); });
+  });
+}
+
+function bulkApprove(ids) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'อนุมัติหลายรายการ',
+    message: 'ต้องการอนุมัติการชำระเงิน ' + ids.length + ' รายการพร้อมกันใช่หรือไม่? ระบบจะออกเลขที่ใบเสร็จให้ทุกรายการ',
+    confirmText: 'อนุมัติ ' + ids.length + ' รายการ'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiBulkApprove', { ids: ids })
+      .then(function (r) {
+        toast('อนุมัติสำเร็จ ' + r.approved + ' รายการ' + (r.failed.length ? ' • ไม่สำเร็จ ' + r.failed.length + ' รายการ' : ''),
+          r.failed.length ? 'warn' : 'success', 6000);
+        if (r.failed.length) {
+          modal({ title: 'รายการที่อนุมัติไม่สำเร็จ', size: 'modal-sm',
+            body: el('ul', { style: 'margin:0;padding-inline-start:1.2rem' }, r.failed.map(function (f) {
+              return el('li', { text: (f.ref_code || '#' + f.id) + ': ' + f.reason });
+            })) });
+        }
+        refreshPending();
+        loadPayments();
+      })
+      .catch(function (e) { toast(e.message, 'error'); });
+  });
+}
+
+function openManualPayment() {
+  if (needWrite()) return;
+  call('apiCollections', {}).then(function (r) {
+    var cols = r.collections.filter(function (c) { return c.status !== 'draft'; });
+    if (!cols.length) { toast('ยังไม่มีรายการจัดเก็บที่เปิดใช้งาน', 'warn'); return; }
+
+    var form = el('form', { id: 'mpForm' }, [
+      el('div', { class: 'alert alert-info', style: 'margin-bottom:1rem' },
+        ['ใช้สำหรับบันทึกการชำระที่รับเป็นเงินสดหรือรับที่โรงเรียน ระบบจะบันทึกเป็น "ชำระแล้ว" ทันทีพร้อมออกใบเสร็จ']),
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'mpCol', text: 'รายการจัดเก็บ' }),
+        el('select', { id: 'mpCol', required: true }, [el('option', { value: '', text: '— เลือกรายการ —' })].concat(
+          cols.map(function (c) { return el('option', { value: String(c.id), text: c.name + ' (' + c.code + ')' }); })))
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'mpMember', text: 'สมาชิกที่ชำระ' }),
+        el('select', { id: 'mpMember', required: true, disabled: true }, [el('option', { value: '', text: '— เลือกรายการจัดเก็บก่อน —' })])
+      ]),
+      el('div', { class: 'grid grid-2', style: 'gap:.75rem' }, [
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { class: 'req', for: 'mpAmount', text: 'จำนวนเงิน (บาท)' }),
+          el('input', { type: 'number', id: 'mpAmount', step: '0.01', min: '0.01', required: true })
+        ]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'mpMethod', text: 'ช่องทาง' }),
+          el('select', { id: 'mpMethod' }, [
+            el('option', { value: 'cash', text: 'เงินสด' }),
+            el('option', { value: 'transfer', text: 'โอนเงิน' }),
+            el('option', { value: 'other', text: 'อื่น ๆ' })
+          ])
+        ])
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'mpNote', text: 'หมายเหตุ' }),
+        el('input', { type: 'text', id: 'mpNote', maxlength: '500', value: 'รับชำระที่โรงเรียน' })
+      ])
+    ]);
+
+    var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'mpForm', text: 'บันทึกการชำระเงิน' });
+    var m = modal({ title: 'บันทึกการชำระเงินโดยผู้ดูแล', body: form,
+      footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+    $('#mpCol', form).addEventListener('change', function (e) {
+      var sel = $('#mpMember', form);
+      sel.disabled = true;
+      sel.innerHTML = '<option value="">กำลังโหลด...</option>';
+      if (!e.target.value) { sel.innerHTML = '<option value="">— เลือกรายการจัดเก็บก่อน —</option>'; return; }
+      call('apiCollection', { id: e.target.value }).then(function (d) {
+        var owing = d.members.filter(function (x) { return !x.waived && x.outstanding > 0; });
+        sel.innerHTML = '';
+        sel.appendChild(el('option', { value: '', text: owing.length ? '— เลือกสมาชิก —' : 'ไม่มีผู้ค้างชำระในรายการนี้' }));
+        owing.forEach(function (x) {
+          sel.appendChild(el('option', {
+            value: String(x.assignment_id), dataset: { outstanding: String(x.outstanding) },
+            text: x.member_code + ' ' + x.full_name + ' — ค้าง ' + money(x.outstanding) + ' บาท'
+          }));
+        });
+        sel.disabled = !owing.length;
+      }).catch(function (ex) { toast(ex.message, 'error'); });
+    });
+
+    $('#mpMember', form).addEventListener('change', function (e) {
+      var opt = e.target.selectedOptions[0];
+      if (opt && opt.dataset.outstanding) $('#mpAmount', form).value = opt.dataset.outstanding;
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      busy(btn, true, 'กำลังบันทึก...');
+      call('apiManualPayment', {
+        assignment_id: $('#mpMember', form).value,
+        amount: $('#mpAmount', form).value,
+        method: $('#mpMethod', form).value,
+        note: $('#mpNote', form).value
+      }).then(function (r) {
+        m.close();
+        toast('บันทึกเรียบร้อย เลขที่ใบเสร็จ ' + r.receipt_no + ' • สถานะ: ' + r.assignment_status_label, 'success', 6000);
+        reload();
+      }).catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+    });
+  }).catch(function (e) { toast(e.message, 'error'); });
+}
+
+function printReceipt(paymentId) {
+  call('apiReceipt', { id: paymentId }).then(function (d) {
+    var r = d.receipt;
+    var box = el('div', { class: 'receipt', id: 'receiptBox' }, [
+      el('div', { class: 'receipt-head' }, [
+        r.school.logo ? el('img', { src: r.school.logo, style: 'width:60px;height:60px;object-fit:contain', alt: '' }) : null,
+        el('h2', { style: 'margin:.2rem 0', text: r.school.name }),
+        r.school.address ? el('div', { style: 'font-size:.85rem', text: r.school.address }) : null,
+        r.school.phone ? el('div', { style: 'font-size:.85rem', text: 'โทร. ' + r.school.phone }) : null,
+        el('h3', { style: 'margin:.7rem 0 0;font-size:1.15rem', text: 'ใบรับเงิน / ใบเสร็จรับเงิน' })
+      ]),
+      el('div', { style: 'display:flex;justify-content:space-between;font-size:.9rem;flex-wrap:wrap;gap:.5rem' }, [
+        el('div', {}, [el('strong', { text: 'เลขที่: ' }), r.receipt_no || '-']),
+        el('div', {}, [el('strong', { text: 'วันที่: ' }), thaiDate(r.paid_at)])
+      ]),
+      el('div', { style: 'margin-top:.8rem;font-size:.95rem' }, [
+        el('div', {}, [el('strong', { text: 'ได้รับเงินจาก: ' }), r.member.full_name + ' (' + r.member.member_code + ')']),
+        r.member.group_name ? el('div', {}, [el('strong', { text: 'กลุ่ม/ชั้น: ' }), r.member.group_name]) : null,
+        el('div', {}, [el('strong', { text: 'วัตถุประสงค์: ' }), r.collection.name + ' (' + r.collection.code + ')']),
+        el('div', {}, [el('strong', { text: 'ช่องทาง: ' }), r.method_label]),
+        el('div', {}, [el('strong', { text: 'เลขอ้างอิง: ' }), r.ref_code])
+      ]),
+      el('table', {}, [
+        el('thead', {}, [el('tr', {}, [el('th', { text: 'รายการ' }), el('th', { style: 'text-align:left;width:130px', text: 'จำนวนเงิน (บาท)' })])]),
+        el('tbody', {}, r.items.length
+          ? r.items.map(function (it) { return el('tr', {}, [el('td', { text: it.name }), el('td', { style: 'text-align:left', text: money(it.amount) })]); })
+          : [el('tr', {}, [el('td', { text: r.collection.name }), el('td', { style: 'text-align:left', text: money(r.amount) })])]),
+        el('tfoot', {}, [el('tr', {}, [
+          el('th', { text: 'รวมเป็นเงินทั้งสิ้น' }), el('th', { style: 'text-align:left', text: money(r.amount) })
+        ])])
+      ]),
+      el('div', { style: 'text-align:center;font-weight:700;margin:.5rem 0', text: '(' + r.amount_text + ')' }),
+      el('div', { class: 'receipt-sign' }, [
+        el('div', {}, [el('div', { class: 'line' }), el('div', { text: '( ' + (r.verified_by_name || '.........................') + ' )' }), el('div', { text: 'ผู้รับเงิน' })]),
+        el('div', {}, [el('div', { class: 'line' }), el('div', { text: '( ......................................... )' }), el('div', { text: 'ผู้อนุมัติ' })])
+      ])
+    ]);
+
+    var m = modal({ title: 'ใบเสร็จรับเงิน ' + r.receipt_no, body: box, size: 'modal-lg',
+      footer: [
+        el('button', { class: 'btn', type: 'button', text: 'ปิด', onclick: function () { m.close(); } }),
+        el('button', { class: 'btn btn-primary', type: 'button', text: '🖨 พิมพ์', onclick: function () { printNode(box); } })
+      ] });
+  }).catch(function (e) { toast(e.message, 'error'); });
+}
+
+/** พิมพ์เฉพาะส่วนที่ระบุ โดยซ่อนส่วนอื่นชั่วคราว (เว็บแอปอยู่ใน iframe จึงเปิดหน้าต่างใหม่ไม่ได้เสมอไป) */
+function printNode(node) {
+  var holder = el('div', { id: 'printHolder' });
+  holder.appendChild(node.cloneNode(true));
+  document.body.appendChild(holder);
+  var style = el('style', { id: 'printOnlyStyle', text:
+    '@media print { body > *:not(#printHolder) { display: none !important; } ' +
+    '#printHolder { display: block !important; } @page { size: A4; margin: 12mm; } }' });
+  document.head.appendChild(style);
+  window.print();
+  setTimeout(function () {
+    if (holder.parentNode) holder.parentNode.removeChild(holder);
+    if (style.parentNode) style.parentNode.removeChild(style);
+  }, 800);
+}
+
+/* ============================== รายการจัดเก็บ ============================== */
+var COL_STATUS = { draft: ['badge-draft', 'ฉบับร่าง'], open: ['badge-open', 'เปิดรับชำระ'], closed: ['badge-closed', 'ปิดรับชำระ'] };
+var colFilters = { q: '', group: '', status: '' };
+
+route('collections', function (view, params) {
+  if (params && params.id) return renderCollectionDetail(view, params.id);
+
+  return call('apiCollections', {}).then(function (r) {
+    var collections = r.collections;
+    view.innerHTML = '';
+    view.appendChild(pageHead('รายการจัดเก็บ', 'สร้างและจัดการรายการเก็บเงินตามวัตถุประสงค์ (ไม่จำกัดจำนวน)', [
+      canWrite() ? el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '+ สร้างรายการจัดเก็บ', onclick: function () { openCollectionForm(); } }) : null
+    ]));
+
+    if (!collections.length) {
+      view.appendChild(el('div', { class: 'card' }, [
+        emptyState('📋', 'ยังไม่มีรายการจัดเก็บ', 'เริ่มต้นด้วยการสร้างรายการเก็บเงินรายการแรก เช่น "เงินบำรุงการศึกษา ภาคเรียนที่ 1"',
+          canWrite() ? el('button', { class: 'btn btn-primary', type: 'button', text: '+ สร้างรายการจัดเก็บ', onclick: function () { openCollectionForm(); } }) : null)
+      ]));
+      return;
+    }
+
+    view.appendChild(el('div', { class: 'grid grid-2' }, collections.map(function (c) {
+      var s = c.summary;
+      var st = COL_STATUS[c.status] || ['badge-draft', c.status];
+      return el('div', { class: 'card' }, [
+        el('div', { class: 'row', style: 'gap:.35rem;margin-bottom:.2rem' }, [
+          el('span', { class: 'chip', text: c.code }),
+          el('span', { class: 'badge ' + st[0], text: st[1] })
+        ]),
+        el('h3', { style: 'margin:.25rem 0 .1rem' }, [
+          el('button', { class: 'btn btn-ghost', style: 'padding:0;font-size:1.1rem;font-weight:700;color:var(--brand-600)', type: 'button', text: c.name, onclick: function () { navigate('collections', { id: c.id }); } })
+        ]),
+        el('div', { class: 'tiny muted' }, [
+          c.fiscal_year ? el('span', { text: 'ปีการศึกษา ' + c.fiscal_year + ' ' }) : null,
+          c.term ? el('span', { text: '• ภาคเรียนที่ ' + c.term + ' ' }) : null,
+          c.due_date ? el('span', { text: '• ครบกำหนด ' + thaiDate(c.due_date, { short: true }) }) : null
+        ]),
+        el('div', { class: 'row-between small', style: 'margin:.7rem 0 .25rem' }, [
+          el('span', { class: 'muted', text: s.total_members + ' คน • ' + c.item_count + ' กิจกรรมย่อย' }),
+          el('span', { class: 'bold', text: money(s.total_paid) + ' / ' + money(s.total_due) + ' บาท' })
+        ]),
+        el('div', { class: 'progress' }, [el('span', { style: 'width:' + Math.min(100, s.percent_paid) + '%' })]),
+        el('div', { class: 'row', style: 'gap:.5rem;margin-top:.5rem;font-size:.78rem;align-items:center' }, [
+          el('span', { style: 'color:var(--green-600)', text: '✓ ' + s.count_paid }),
+          el('span', { style: 'color:var(--amber-600)', text: '⏳ ' + s.count_pending }),
+          el('span', { style: 'color:var(--red-600)', text: '✕ ' + (s.count_unpaid + s.count_rejected) }),
+          el('span', { class: 'spacer' }),
+          el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: 'จัดการ →', onclick: function () { navigate('collections', { id: c.id }); } })
+        ])
+      ]);
+    })));
+  });
+});
+
+function renderCollectionDetail(view, id) {
+  return call('apiCollection', { id: id }).then(function (d) {
+    var c = d.collection;
+    var s = d.summary;
+    var st = COL_STATUS[c.status] || ['badge-draft', c.status];
+    view.innerHTML = '';
+
+    view.appendChild(pageHead(c.name,
+      c.code + (c.fiscal_year ? ' • ปีการศึกษา ' + c.fiscal_year : '') + (c.term ? ' • ภาคเรียนที่ ' + c.term : ''), [
+      el('button', { class: 'btn btn-sm', type: 'button', text: '← กลับ', onclick: function () { navigate('collections'); } }),
+      el('button', { class: 'btn btn-sm', type: 'button', text: '📊 รายงาน', onclick: function () { repState.tab = 'collection'; repState.filters.collection = String(c.id); navigate('reports'); } }),
+      canWrite() ? el('button', { class: 'btn btn-sm', type: 'button', text: '✎ แก้ไข', onclick: function () { openCollectionForm(c); } }) : null
+    ]));
+
+    view.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+      el('div', { class: 'row-between' }, [
+        el('div', { class: 'row', style: 'gap:.6rem' }, [
+          el('span', { class: 'badge ' + st[0], text: st[1] }),
+          c.due_date ? el('span', { class: 'small muted', text: 'กำหนดชำระภายใน ' + thaiDate(c.due_date) }) : null,
+          c.allow_partial ? el('span', { class: 'chip', text: 'ผ่อนชำระได้' }) : null,
+          c.is_public ? null : el('span', { class: 'badge badge-draft', text: 'ซ่อนจากหน้าสาธารณะ' })
+        ]),
+        canWrite() ? el('div', { class: 'row', style: 'gap:.4rem' }, [
+          c.status !== 'open'
+            ? el('button', { class: 'btn btn-sm btn-green', type: 'button', text: '▶ เปิดรับชำระ', onclick: function () { setColStatus(c.id, 'open'); } })
+            : el('button', { class: 'btn btn-sm btn-amber', type: 'button', text: '⏸ ปิดรับชำระ', onclick: function () { setColStatus(c.id, 'closed'); } }),
+          el('button', { class: 'btn btn-sm', type: 'button', text: '⧉ ทำสำเนา', onclick: function () { duplicateCollection(c.id); } }),
+          el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑 ลบ', onclick: function () { deleteCollection(c); } })
+        ]) : null
+      ]),
+      c.description ? el('p', { class: 'small muted', style: 'margin:.6rem 0 0', text: c.description }) : null
+    ]));
+
+    view.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+      statCard('ผู้ต้องชำระ', s.total_members, 'คน', ''),
+      statCard('ชำระแล้ว', s.count_paid, 'คน', 'is-green', money(s.total_paid) + ' บาท'),
+      statCard('รอตรวจสอบ', s.count_pending, 'คน', 'is-amber'),
+      statCard('ยังไม่ชำระ', s.count_unpaid + s.count_rejected, 'คน', 'is-red', money(s.total_outstanding) + ' บาท')
+    ]));
+
+    /* ---- กิจกรรมย่อย ---- */
+    var itemsCard = el('section', { class: 'card card-pad-0', style: 'margin-bottom:1rem' }, [
+      el('div', { class: 'card-head' }, [
+        el('h2', { style: 'font-size:1.05rem' }, [
+          'กิจกรรมย่อยของการจัดเก็บ ',
+          el('span', { class: 'chip', text: 'ยอดรวมบังคับ ' + money(c.base_amount) + ' บาท' })
+        ]),
+        canWrite() ? el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '+ เพิ่มกิจกรรมย่อย', onclick: function () { openItemForm(c.id); } }) : null
+      ])
+    ]);
+    if (!d.items.length) {
+      itemsCard.appendChild(emptyState('🧩', 'ยังไม่มีกิจกรรมย่อย',
+        'เพิ่มกิจกรรมย่อยเพื่อระบุว่าเงินที่เก็บนำไปใช้ทำอะไรบ้าง พร้อมจำนวนเงินของแต่ละกิจกรรม'));
+    } else {
+      itemsCard.appendChild(el('div', { class: 'table-wrap' }, [
+        el('table', { class: 'data cards' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: 'กิจกรรมย่อย' }), el('th', { class: 'num', text: 'จำนวนเงิน' }),
+            el('th', { class: 'mid', text: 'ประเภท' }), el('th', { class: 'mid', style: 'width:110px' })
+          ])]),
+          el('tbody', {}, d.items.map(function (it) {
+            return el('tr', {}, [
+              el('td', { 'data-label': 'กิจกรรมย่อย' }, [
+                el('div', { class: 'bold', text: it.name }),
+                it.description ? el('div', { class: 'tiny muted', text: it.description }) : null
+              ]),
+              el('td', { class: 'num bold', 'data-label': 'จำนวนเงิน', text: money(it.amount) }),
+              el('td', { class: 'mid', 'data-label': 'ประเภท' }, [
+                el('span', { class: 'badge ' + (it.is_optional ? 'badge-draft' : 'badge-open'), text: it.is_optional ? 'เลือกได้' : 'บังคับ' })
+              ]),
+              el('td', { class: 'mid cell-full', 'data-label': '' }, [
+                canWrite() ? el('div', { class: 'row', style: 'gap:.25rem;justify-content:center' }, [
+                  el('button', { class: 'btn btn-sm', type: 'button', text: '✎', title: 'แก้ไข', onclick: function () { openItemForm(c.id, it); } }),
+                  el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑', title: 'ลบ', onclick: function () { deleteItem(c.id, it); } })
+                ]) : null
+              ])
+            ]);
+          })),
+          el('tfoot', {}, [el('tr', {}, [
+            el('td', { text: 'รวมกิจกรรมบังคับ' }), el('td', { class: 'num', text: money(c.base_amount) }), el('td', { colspan: '2' })
+          ])])
+        ])
+      ]));
+    }
+    view.appendChild(itemsCard);
+
+    /* ---- ผู้ที่ต้องชำระ ---- */
+    var membersCard = el('section', { class: 'card card-pad-0' }, [
+      el('div', { class: 'card-head' }, [
+        el('h2', { style: 'font-size:1.05rem', text: 'ผู้ที่ต้องชำระ (' + s.total_members + ' คน)' }),
+        el('div', { class: 'row', style: 'gap:.4rem' }, [
+          canWrite() ? el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '+ เพิ่มผู้ต้องชำระ', onclick: function () { openAssignModal(c, d.items); } }) : null,
+          el('button', { class: 'btn btn-sm', type: 'button', text: '⬇ ส่งออก', onclick: function () { exportReport('collection', { collection: c.id }); } })
+        ])
+      ]),
+      el('div', { class: 'filters' }, [
+        el('div', { class: 'field' }, [
+          el('label', { text: 'ค้นหา' }),
+          el('input', { type: 'search', placeholder: 'ชื่อ หรือรหัสสมาชิก', value: colFilters.q,
+            oninput: debounce(function (e) { colFilters.q = e.target.value; renderAssignRows(d, c); }, 250) })
+        ]),
+        el('div', { class: 'field' }, [
+          el('label', { text: 'กลุ่ม/ชั้น' }),
+          el('select', { onchange: function (e) { colFilters.group = e.target.value; renderAssignRows(d, c); } },
+            [el('option', { value: '', text: 'ทุกกลุ่ม' })].concat(d.groups.map(function (g) {
+              return el('option', { value: String(g.id), text: g.name, selected: String(g.id) === colFilters.group });
+            })))
+        ]),
+        el('div', { class: 'field' }, [
+          el('label', { text: 'สถานะ' }),
+          el('select', { onchange: function (e) { colFilters.status = e.target.value; renderAssignRows(d, c); } },
+            [el('option', { value: '', text: 'ทุกสถานะ' })].concat(
+              ['unpaid', 'pending', 'paid', 'partial', 'rejected', 'waived'].map(function (stt) {
+                return el('option', { value: stt, text: STATUS_META[stt].label, selected: stt === colFilters.status });
+              })))
+        ])
+      ]),
+      el('div', { id: 'assignList' })
+    ]);
+    view.appendChild(membersCard);
+    renderAssignRows(d, c);
+  });
+}
+
+function renderAssignRows(d, c) {
+  var box = $('#assignList');
+  if (!box) return;
+  var rows = d.members;
+
+  if (colFilters.group) {
+    var gname = null;
+    d.groups.forEach(function (g) { if (String(g.id) === colFilters.group) gname = g.name; });
+    rows = rows.filter(function (m) { return m.group_name === gname; });
+  }
+  if (colFilters.status) rows = rows.filter(function (m) { return m.status === colFilters.status; });
+  if (colFilters.q) {
+    var q = colFilters.q.trim().toLowerCase();
+    rows = rows.filter(function (m) {
+      return m.full_name.toLowerCase().indexOf(q) >= 0 || String(m.member_code).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  box.innerHTML = '';
+  if (!rows.length) {
+    box.appendChild(emptyState('👥', 'ยังไม่มีผู้ที่ต้องชำระ',
+      'กด "เพิ่มผู้ต้องชำระ" เพื่อเลือกสมาชิกเป็นรายกลุ่มหรือรายบุคคล พร้อมกำหนดยอดที่ต้องชำระ'));
+    return;
+  }
+
+  var sumDue = 0, sumPaid = 0, sumOut = 0;
+  rows.forEach(function (m) { sumDue += m.waived ? 0 : m.net_due; sumPaid += m.paid_amount; sumOut += m.outstanding; });
+
+  box.appendChild(el('div', { class: 'table-wrap' }, [
+    el('table', { class: 'data cards' }, [
+      el('thead', {}, [el('tr', {}, [
+        el('th', { class: 'mid', style: 'width:55px', text: 'ลำดับ' }),
+        el('th', { text: 'รหัส' }), el('th', { text: 'ชื่อ-สกุล' }),
+        el('th', { class: 'mid', text: 'กลุ่ม/ชั้น' }),
+        el('th', { class: 'num', text: 'ต้องชำระ' }), el('th', { class: 'num', text: 'ชำระแล้ว' }),
+        el('th', { class: 'num', text: 'คงเหลือ' }), el('th', { class: 'mid', text: 'สถานะ' }),
+        el('th', { class: 'mid', style: 'width:110px' })
+      ])]),
+      el('tbody', {}, rows.map(function (m, i) {
+        return el('tr', {}, [
+          el('td', { class: 'mid mono', 'data-label': 'ลำดับ', text: String(i + 1) }),
+          el('td', { class: 'mono', 'data-label': 'รหัส', text: m.member_code }),
+          el('td', { 'data-label': 'ชื่อ-สกุล' }, [
+            el('button', { class: 'btn btn-ghost bold', style: 'padding:0;color:var(--brand-600)', type: 'button', text: m.full_name, onclick: function () { navigate('members', { id: m.member_id }); } }),
+            m.latest_ref ? el('div', { class: 'tiny muted', text: 'เลขอ้างอิงล่าสุด ' + m.latest_ref }) : null
+          ]),
+          el('td', { class: 'mid small', 'data-label': 'กลุ่ม/ชั้น', text: m.group_name || '-' }),
+          el('td', { class: 'num', 'data-label': 'ต้องชำระ', text: money(m.net_due) }),
+          el('td', { class: 'num', 'data-label': 'ชำระแล้ว', text: money(m.paid_amount) }),
+          el('td', { class: 'num bold', 'data-label': 'คงเหลือ', style: m.outstanding > 0 ? 'color:var(--red-600)' : '', text: money(m.outstanding) }),
+          el('td', { class: 'mid', 'data-label': 'สถานะ' }, [statusBadge(m.status, m.status_label)]),
+          el('td', { class: 'mid cell-full', 'data-label': '' }, [
+            canWrite() ? el('div', { class: 'row', style: 'gap:.25rem;justify-content:center' }, [
+              el('button', { class: 'btn btn-sm', type: 'button', text: '✎', title: 'แก้ไขยอด', onclick: function () { openAssignEdit(c.id, m); } }),
+              el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑', title: 'นำออก', onclick: function () { removeAssignment(m); } })
+            ]) : null
+          ])
+        ]);
+      })),
+      el('tfoot', {}, [el('tr', {}, [
+        el('td', { colspan: '4', text: 'รวม ' + rows.length + ' คน' }),
+        el('td', { class: 'num', text: money(sumDue) }),
+        el('td', { class: 'num', text: money(sumPaid) }),
+        el('td', { class: 'num', text: money(sumOut) }),
+        el('td', { colspan: '2' })
+      ])])
+    ])
+  ]));
+}
+
+function openCollectionForm(c) {
+  if (needWrite()) return;
+  var isEdit = !!c;
+  var thisYear = new Date().getFullYear() + 543;
+  var itemsBox = el('div', { id: 'itemsBox' });
+
+  function addItemRow(name, amount, optional) {
+    itemsBox.appendChild(el('div', { class: 'row it-row', style: 'gap:.4rem;margin-bottom:.4rem' }, [
+      el('input', { type: 'text', class: 'it-name', placeholder: 'ชื่อกิจกรรมย่อย เช่น ค่าบำรุงการศึกษา', value: name || '', style: 'flex:2 1 180px' }),
+      el('input', { type: 'number', class: 'it-amount', placeholder: 'จำนวนเงิน', step: '0.01', min: '0', value: amount || '', style: 'flex:1 1 110px' }),
+      el('label', { class: 'check', style: 'flex:0 0 auto;white-space:nowrap' }, [
+        el('input', { type: 'checkbox', class: 'it-opt', checked: !!optional }),
+        el('span', { class: 'small', text: 'เลือกได้' })
+      ]),
+      el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '✕', onclick: function (e) {
+        var row = e.target.closest('.it-row');
+        if (row && row.parentNode) row.parentNode.removeChild(row);
+      }})
+    ]));
+  }
+
+  var form = el('form', { id: 'colForm' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'cfName', text: 'วัตถุประสงค์ของการจัดเก็บ' }),
+      el('input', { type: 'text', id: 'cfName', required: true, maxlength: '200', value: c ? c.name : '', placeholder: 'เช่น เงินบำรุงการศึกษา ภาคเรียนที่ 1' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'cfDesc', text: 'รายละเอียดเพิ่มเติม' }),
+      el('textarea', { id: 'cfDesc', rows: '2', maxlength: '1000', text: c ? (c.description || '') : '' })
+    ]),
+    el('div', { class: 'grid grid-3', style: 'gap:.7rem' }, [
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { for: 'cfYear', text: 'ปีการศึกษา' }),
+        el('input', { type: 'text', id: 'cfYear', maxlength: '20', value: c ? (c.fiscal_year || '') : String(thisYear) })
+      ]),
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { for: 'cfTerm', text: 'ภาคเรียน' }),
+        el('select', { id: 'cfTerm' }, ['', '1', '2', '3'].map(function (t) {
+          return el('option', { value: t, text: t ? 'ภาคเรียนที่ ' + t : 'ไม่ระบุ', selected: c && String(c.term) === t });
+        }))
+      ]),
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { for: 'cfDue', text: 'กำหนดชำระภายใน' }),
+        el('input', { type: 'date', id: 'cfDue', value: c && c.due_date ? String(c.due_date).substring(0, 10) : '' })
+      ])
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'cfAmount', text: 'ยอดตั้งต้นต่อคน (บาท)' }),
+      el('input', { type: 'number', id: 'cfAmount', step: '0.01', min: '0', value: c ? String(c.default_amount) : '0' }),
+      el('div', { class: 'hint', text: 'ใช้เมื่อไม่ได้กำหนดกิจกรรมย่อย — หากมีกิจกรรมย่อยแบบบังคับ ระบบจะใช้ผลรวมของกิจกรรมย่อยแทน' })
+    ]),
+    el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'cfPartial', checked: c ? !!c.allow_partial : false }),
+      el('span', {}, [el('span', { class: 'bold', text: 'อนุญาตให้ผ่อนชำระ' }), el('div', { class: 'tiny muted', text: 'สมาชิกสามารถแจ้งชำระบางส่วนได้หลายครั้งจนครบยอด' })])
+    ]),
+    el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'cfPublic', checked: c ? !!c.is_public : true }),
+      el('span', {}, [el('span', { class: 'bold', text: 'แสดงบนหน้าสาธารณะ' }), el('div', { class: 'tiny muted', text: 'ให้สมาชิกเห็นและแจ้งชำระผ่านหน้าเว็บได้' })])
+    ])
+  ]);
+
+  if (!isEdit) {
+    form.appendChild(el('fieldset', { style: 'margin-top:1rem' }, [
+      el('legend', { text: 'กิจกรรมย่อยและจำนวนเงิน (เพิ่มได้ไม่จำกัด)' }),
+      itemsBox,
+      el('button', { class: 'btn btn-sm', type: 'button', text: '+ เพิ่มกิจกรรมย่อย', onclick: function () { addItemRow(); } })
+    ]));
+    addItemRow();
+  }
+
+  var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'colForm', text: isEdit ? 'บันทึกการแก้ไข' : 'สร้างรายการจัดเก็บ' });
+  var m = modal({ title: isEdit ? 'แก้ไขรายการจัดเก็บ' : 'สร้างรายการจัดเก็บใหม่', body: form, size: 'modal-lg',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true, 'กำลังบันทึก...');
+    var payload = {
+      id: c ? c.id : null,
+      name: $('#cfName', form).value,
+      description: $('#cfDesc', form).value,
+      fiscal_year: $('#cfYear', form).value,
+      term: $('#cfTerm', form).value,
+      due_date: $('#cfDue', form).value,
+      default_amount: $('#cfAmount', form).value,
+      allow_partial: $('#cfPartial', form).checked,
+      is_public: $('#cfPublic', form).checked
+    };
+    if (!isEdit) {
+      payload.items = $$('.it-row', itemsBox).map(function (r) {
+        return {
+          name: $('.it-name', r).value,
+          amount: $('.it-amount', r).value || 0,
+          is_optional: $('.it-opt', r).checked
+        };
+      }).filter(function (x) { return String(x.name).trim(); });
+    }
+    call('apiSaveCollection', payload)
+      .then(function (r) {
+        m.close();
+        toast(isEdit ? 'บันทึกการแก้ไขเรียบร้อย' : 'สร้างรายการจัดเก็บเรียบร้อย', 'success');
+        if (!isEdit) navigate('collections', { id: r.id }); else reload();
+      })
+      .catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+  });
+}
+
+function openItemForm(collectionId, item) {
+  if (needWrite()) return;
+  var form = el('form', { id: 'itForm' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'ifName', text: 'ชื่อกิจกรรมย่อย' }),
+      el('input', { type: 'text', id: 'ifName', required: true, maxlength: '200', value: item ? item.name : '' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'ifDesc', text: 'รายละเอียด' }),
+      el('input', { type: 'text', id: 'ifDesc', maxlength: '500', value: item ? (item.description || '') : '' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'ifAmount', text: 'จำนวนเงิน (บาท)' }),
+      el('input', { type: 'number', id: 'ifAmount', step: '0.01', min: '0', required: true, value: item ? String(item.amount) : '' })
+    ]),
+    el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'ifOpt', checked: item ? !!item.is_optional : false }),
+      el('span', {}, [el('span', { class: 'bold', text: 'เป็นรายการที่เลือกได้' }), el('div', { class: 'tiny muted', text: 'ไม่นับรวมในยอดบังคับ — ใช้เมื่อเลือกกำหนดเฉพาะบางคน' })])
+    ]),
+    item ? el('div', { class: 'alert alert-warn small' }, ['การแก้ไขจำนวนเงินจะปรับยอดของสมาชิกที่ผูกกับกิจกรรมย่อยนี้ไว้โดยอัตโนมัติ']) : null
+  ]);
+  var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'itForm', text: item ? 'บันทึก' : 'เพิ่มกิจกรรมย่อย' });
+  var m = modal({ title: item ? 'แก้ไขกิจกรรมย่อย' : 'เพิ่มกิจกรรมย่อย', body: form, size: 'modal-sm',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true);
+    call('apiSaveCollectionItem', {
+      id: item ? item.id : null, collection_id: collectionId,
+      name: $('#ifName', form).value, description: $('#ifDesc', form).value,
+      amount: $('#ifAmount', form).value, is_optional: $('#ifOpt', form).checked
+    }).then(function () { m.close(); toast('บันทึกเรียบร้อย', 'success'); reload(); })
+      .catch(function (ex) { toast(ex.message, 'error'); busy(btn, false); });
+  });
+}
+
+function deleteItem(collectionId, item) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'ลบกิจกรรมย่อย', danger: true, confirmText: 'ลบ',
+    message: 'ต้องการลบ "' + item.name + '" (' + money(item.amount) + ' บาท) ใช่หรือไม่? ยอดของสมาชิกที่ผูกกับกิจกรรมนี้จะถูกคำนวณใหม่'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiDeleteCollectionItem', { collection_id: collectionId, id: item.id })
+      .then(function () { toast('ลบกิจกรรมย่อยแล้ว', 'success'); reload(); })
+      .catch(function (e) { toast(e.message, 'error'); });
+  });
+}
+
+function setColStatus(id, status) {
+  if (needWrite()) return;
+  call('apiSetCollectionStatus', { id: id, status: status })
+    .then(function () {
+      toast(status === 'open' ? 'เปิดรับชำระแล้ว — สมาชิกสามารถแจ้งชำระได้ทันที' : 'ปิดรับชำระแล้ว', 'success');
+      reload();
+    })
+    .catch(function (e) { toast(e.message, 'error', 6000); });
+}
+
+function duplicateCollection(id) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'ทำสำเนารายการจัดเก็บ',
+    message: 'ต้องการคัดลอกรายชื่อผู้ที่ต้องชำระไปด้วยหรือไม่? (กิจกรรมย่อยจะถูกคัดลอกเสมอ)',
+    confirmText: 'คัดลอกพร้อมรายชื่อ', cancelText: 'คัดลอกเฉพาะโครงสร้าง'
+  }).then(function (withMembers) {
+    call('apiDuplicateCollection', { id: id, with_members: withMembers })
+      .then(function (r) { toast('ทำสำเนาเรียบร้อย (สถานะเป็นฉบับร่าง)', 'success'); navigate('collections', { id: r.id }); })
+      .catch(function (e) { toast(e.message, 'error'); });
+  });
+}
+
+function deleteCollection(c) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'ลบรายการจัดเก็บ', danger: true, confirmText: 'ลบถาวร',
+    message: 'ต้องการลบ "' + c.name + '" ใช่หรือไม่? ข้อมูลผู้ต้องชำระและประวัติการชำระทั้งหมดของรายการนี้จะถูกลบไปด้วย และไม่สามารถกู้คืนได้'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiDeleteCollection', { id: c.id })
+      .then(function () { toast('ลบรายการจัดเก็บแล้ว', 'success'); navigate('collections'); })
+      .catch(function (e) {
+        confirmDialog({ title: 'ยืนยันอีกครั้ง', danger: true, confirmText: 'ลบถาวร', message: e.message })
+          .then(function (yes2) {
+            if (!yes2) return;
+            call('apiDeleteCollection', { id: c.id, force: true })
+              .then(function () { toast('ลบรายการจัดเก็บแล้ว', 'success'); navigate('collections'); })
+              .catch(function (e2) { toast(e2.message, 'error'); });
+          });
+      });
+  });
+}
+
+function openAssignModal(c, items) {
+  if (needWrite()) return;
+  Promise.all([call('apiGroups', {}), call('apiAvailableMembers', { collection_id: c.id })]).then(function (res) {
+    var groups = res[0].groups.filter(function (g) { return g.member_count > 0; });
+    var avail = res[1].members;
+    var mode = 'group';
+    var selectedMembers = {};
+
+    var modeBox = el('div', { class: 'tabs' }, [
+      el('button', { class: 'tab active', type: 'button', dataset: { mode: 'group' }, text: '📁 เลือกทั้งกลุ่ม' }),
+      el('button', { class: 'tab', type: 'button', dataset: { mode: 'members' }, text: '👤 เลือกรายบุคคล' }),
+      el('button', { class: 'tab', type: 'button', dataset: { mode: 'all' }, text: '🌐 สมาชิกทั้งหมด' })
+    ]);
+
+    var paneGroup = el('div', {}, [
+      el('div', { class: 'label', text: 'เลือกกลุ่ม/ชั้นเรียนที่ต้องชำระ' }),
+      groups.length
+        ? el('div', { style: 'max-height:240px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:.5rem' },
+            groups.map(function (g) {
+              return el('label', { class: 'check' }, [
+                el('input', { type: 'checkbox', class: 'grp-check', value: String(g.id) }),
+                el('span', {}, [g.name, el('span', { class: 'muted small', text: ' (' + g.member_count + ' คน)' })])
+              ]);
+            }))
+        : el('div', { class: 'alert alert-warn' }, ['ยังไม่มีกลุ่มที่มีสมาชิก กรุณาเพิ่มสมาชิกก่อน'])
+    ]);
+
+    var memberList = el('div', { style: 'max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:.5rem' });
+    var countLabel = el('span', { class: 'chip', text: 'เลือกแล้ว 0 คน' });
+    function updateCount() { countLabel.textContent = 'เลือกแล้ว ' + Object.keys(selectedMembers).length + ' คน'; }
+
+    function renderAvail(q) {
+      memberList.innerHTML = '';
+      var rows = q ? avail.filter(function (m) {
+        return m.full_name.toLowerCase().indexOf(q.toLowerCase()) >= 0 ||
+          String(m.member_code).toLowerCase().indexOf(q.toLowerCase()) >= 0;
+      }) : avail;
+      if (!rows.length) {
+        memberList.appendChild(el('div', { class: 'muted small center', style: 'padding:1rem', text: 'ไม่พบสมาชิกที่ยังไม่อยู่ในรายการนี้' }));
+        return;
+      }
+      rows.slice(0, 400).forEach(function (m) {
+        memberList.appendChild(el('label', { class: 'check' }, [
+          el('input', { type: 'checkbox', value: String(m.id), checked: !!selectedMembers[m.id], onchange: function (e) {
+            if (e.target.checked) selectedMembers[m.id] = true; else delete selectedMembers[m.id];
+            updateCount();
+          }}),
+          el('span', { class: 'small' }, [
+            el('span', { class: 'mono', text: m.member_code }), ' ', m.full_name,
+            m.group_name ? el('span', { class: 'muted', text: ' • ' + m.group_name }) : null
+          ])
+        ]));
+      });
+    }
+
+    var paneMembers = el('div', { class: 'hidden' }, [
+      el('div', { class: 'row-between', style: 'margin-bottom:.4rem' }, [
+        el('span', { class: 'label', style: 'margin:0', text: 'เลือกสมาชิกรายบุคคล' }), countLabel
+      ]),
+      el('input', { type: 'search', placeholder: 'ค้นหาชื่อหรือรหัส...', style: 'margin-bottom:.4rem',
+        oninput: debounce(function (e) { renderAvail(e.target.value); }, 200) }),
+      memberList,
+      el('div', { class: 'row', style: 'gap:.35rem;margin-top:.4rem' }, [
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'เลือกทั้งหมดที่แสดง', onclick: function () {
+          $$('input[type=checkbox]', memberList).forEach(function (cb) { cb.checked = true; selectedMembers[cb.value] = true; });
+          updateCount();
+        }}),
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'ล้างการเลือก', onclick: function () {
+          selectedMembers = {};
+          $$('input[type=checkbox]', memberList).forEach(function (cb) { cb.checked = false; });
+          updateCount();
+        }})
+      ])
+    ]);
+    renderAvail('');
+
+    var paneAll = el('div', { class: 'hidden' }, [
+      el('div', { class: 'alert alert-warn' }, ['จะเพิ่มสมาชิกที่เปิดใช้งานทั้งหมดเข้ารายการนี้ (ยังไม่อยู่ในรายการ ' + avail.length + ' คน)'])
+    ]);
+
+    var amountInput = el('input', { type: 'number', id: 'asAmount', step: '0.01', min: '0', value: String(c.base_amount || c.default_amount || 0) });
+    var itemChecks = el('div', {}, items.map(function (it) {
+      return el('label', { class: 'check' }, [
+        el('input', { type: 'checkbox', class: 'ai-check', value: String(it.id), checked: !it.is_optional,
+          dataset: { amount: String(it.amount) }, onchange: calcAmount }),
+        el('span', { class: 'small' }, [it.name, el('span', { class: 'muted', text: ' — ' + money(it.amount) + ' บาท' })])
+      ]);
+    }));
+    function calcAmount() {
+      if (!items.length) return;
+      var total = 0;
+      $$('.ai-check', itemChecks).forEach(function (x) { if (x.checked) total += Number(x.dataset.amount); });
+      amountInput.value = String(Math.round(total * 100) / 100);
+    }
+
+    var form = el('form', { id: 'asForm' }, [
+      modeBox, paneGroup, paneMembers, paneAll,
+      el('hr', { class: 'divider' }),
+      items.length ? el('fieldset', {}, [
+        el('legend', { text: 'กิจกรรมย่อยที่ต้องชำระ' }),
+        itemChecks,
+        el('div', { class: 'hint', text: 'ติ๊กเลือกเฉพาะกิจกรรมที่กลุ่ม/บุคคลนี้ต้องชำระ ยอดรวมจะคำนวณให้อัตโนมัติ' })
+      ]) : null,
+      el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+        el('div', { class: 'field', style: 'margin:0' }, [el('label', { class: 'req', for: 'asAmount', text: 'ยอดที่ต้องชำระต่อคน (บาท)' }), amountInput]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'asDiscount', text: 'ส่วนลด (บาท)' }),
+          el('input', { type: 'number', id: 'asDiscount', step: '0.01', min: '0', value: '0' })
+        ])
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'asNote', text: 'หมายเหตุ' }),
+        el('input', { type: 'text', id: 'asNote', maxlength: '500' })
+      ]),
+      el('label', { class: 'check' }, [
+        el('input', { type: 'checkbox', id: 'asOverwrite' }),
+        el('span', {}, [
+          el('span', { class: 'bold', text: 'แก้ไขยอดของผู้ที่อยู่ในรายการอยู่แล้ว' }),
+          el('div', { class: 'tiny muted', text: 'ข้ามผู้ที่มีการแจ้งชำระแล้วเสมอ เพื่อไม่ให้กระทบข้อมูลการเงิน' })
+        ])
+      ])
+    ]);
+
+    $$('button.tab', modeBox).forEach(function (t) {
+      t.addEventListener('click', function () {
+        mode = t.dataset.mode;
+        $$('button.tab', modeBox).forEach(function (x) { x.classList.toggle('active', x === t); });
+        paneGroup.classList.toggle('hidden', mode !== 'group');
+        paneMembers.classList.toggle('hidden', mode !== 'members');
+        paneAll.classList.toggle('hidden', mode !== 'all');
+      });
+    });
+
+    var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'asForm', text: 'เพิ่มผู้ที่ต้องชำระ' });
+    var m = modal({ title: 'กำหนดผู้ที่ต้องชำระ — ' + c.name, body: form, size: 'modal-lg',
+      footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var payload = {
+        collection_id: c.id, mode: mode,
+        amount: amountInput.value,
+        discount: $('#asDiscount', form).value,
+        note: $('#asNote', form).value,
+        overwrite: $('#asOverwrite', form).checked,
+        item_ids: items.length ? $$('.ai-check', itemChecks).filter(function (x) { return x.checked; }).map(function (x) { return Number(x.value); }) : []
+      };
+      if (mode === 'group') {
+        payload.group_ids = $$('.grp-check', paneGroup).filter(function (x) { return x.checked; }).map(function (x) { return Number(x.value); });
+        if (!payload.group_ids.length) { toast('กรุณาเลือกกลุ่มอย่างน้อย 1 กลุ่ม', 'warn'); return; }
+      } else if (mode === 'members') {
+        payload.member_ids = Object.keys(selectedMembers).map(Number);
+        if (!payload.member_ids.length) { toast('กรุณาเลือกสมาชิกอย่างน้อย 1 คน', 'warn'); return; }
+      }
+      busy(btn, true, 'กำลังบันทึก...');
+      call('apiAssign', payload)
+        .then(function (r) {
+          m.close();
+          toast('เพิ่ม ' + r.created + ' คน • แก้ไข ' + r.updated + ' คน • ข้าม ' + r.skipped + ' คน (ยอด ' + money(r.amount) + ' บาท/คน)', 'success', 6000);
+          reload();
+        })
+        .catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+    });
+  }).catch(function (e) { toast(e.message, 'error'); });
+}
+
+function openAssignEdit(collectionId, row) {
+  if (needWrite()) return;
+  var form = el('form', { id: 'aeForm' }, [
+    el('div', { class: 'card', style: 'background:var(--surface-2);margin-bottom:1rem;padding:.7rem' }, [
+      el('div', { class: 'bold', text: row.full_name }),
+      el('div', { class: 'tiny muted', text: row.member_code + (row.group_name ? ' • ' + row.group_name : '') + ' • ชำระแล้ว ' + money(row.paid_amount) + ' บาท' })
+    ]),
+    el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { class: 'req', for: 'aeAmount', text: 'ยอดที่ต้องชำระ (บาท)' }),
+        el('input', { type: 'number', id: 'aeAmount', step: '0.01', min: '0', required: true, value: String(row.amount_due) })
+      ]),
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { for: 'aeDiscount', text: 'ส่วนลด (บาท)' }),
+        el('input', { type: 'number', id: 'aeDiscount', step: '0.01', min: '0', value: String(row.discount || 0) })
+      ])
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'aeNote', text: 'หมายเหตุ' }),
+      el('input', { type: 'text', id: 'aeNote', maxlength: '500', value: row.note || '' })
+    ]),
+    el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'aeWaived', checked: !!row.waived }),
+      el('span', {}, [
+        el('span', { class: 'bold', text: 'ยกเว้นการชำระ' }),
+        el('div', { class: 'tiny muted', text: 'ใช้กรณีได้รับทุนหรือได้รับการยกเว้น — สถานะจะแสดงเป็น "ยกเว้นการชำระ"' })
+      ])
+    ])
+  ]);
+  var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'aeForm', text: 'บันทึก' });
+  var m = modal({ title: 'แก้ไขยอดที่ต้องชำระ', body: form, size: 'modal-sm',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true);
+    call('apiUpdateAssignment', {
+      assignment_id: row.assignment_id,
+      amount_due: $('#aeAmount', form).value, discount: $('#aeDiscount', form).value,
+      note: $('#aeNote', form).value, waived: $('#aeWaived', form).checked
+    }).then(function () { m.close(); toast('บันทึกเรียบร้อย', 'success'); reload(); })
+      .catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+  });
+}
+
+function removeAssignment(row) {
+  if (needWrite()) return;
+  var hasPayments = row.payment_count > 0;
+  confirmDialog({
+    title: 'นำสมาชิกออกจากรายการ', danger: true, confirmText: 'นำออก',
+    message: hasPayments
+      ? row.full_name + ' มีการแจ้งชำระแล้ว ' + row.payment_count + ' รายการ การนำออกจะลบข้อมูลการชำระทั้งหมดด้วย ยืนยันหรือไม่?'
+      : 'ต้องการนำ ' + row.full_name + ' ออกจากรายการจัดเก็บนี้ใช่หรือไม่?'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiRemoveAssignments', { assignment_ids: [row.assignment_id], force: hasPayments })
+      .then(function () { toast('นำออกเรียบร้อย', 'success'); reload(); })
+      .catch(function (e) { toast(e.message, 'error', 6000); });
+  });
+}
+
+/* ================================ สมาชิก ================================ */
+var memFilters = { q: '', group: '', active: '', page: 1 };
+
+route('members', function (view, params) {
+  if (params && params.id) return renderMemberDetail(view, params.id);
+
+  view.innerHTML = '';
+  view.appendChild(pageHead('สมาชิก', 'จัดการรายชื่อผู้ที่ต้องชำระเงิน เพิ่มทีละคนหรือนำเข้าจากไฟล์', [
+    canWrite() ? el('button', { class: 'btn btn-sm', type: 'button', text: '📥 นำเข้าไฟล์', onclick: openImportModal }) : null,
+    canWrite() ? el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '+ เพิ่มสมาชิก', onclick: function () { openMemberForm(); } }) : null
+  ]));
+  view.appendChild(el('section', { class: 'card card-pad-0' }, [
+    el('div', { id: 'memFilters' }), el('div', { id: 'memList' })
+  ]));
+  return loadMembers();
+});
+
+function loadMembers() {
+  var list = $('#memList');
+  if (!list) return Promise.resolve();
+  list.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังโหลด...</div>';
+
+  return Promise.all([
+    call('apiMembers', { q: memFilters.q, group: memFilters.group, active: memFilters.active, page: memFilters.page, per_page: 50 }),
+    call('apiGroups', {})
+  ]).then(function (res) {
+    var data = res[0];
+    var groups = res[1].groups;
+    renderMemFilters(groups, data.total);
+
+    list.innerHTML = '';
+    if (!data.members.length) {
+      list.appendChild(emptyState('👥', 'ไม่พบสมาชิก',
+        (memFilters.q || memFilters.group) ? 'ลองปรับตัวกรองการค้นหา' : 'เริ่มต้นด้วยการเพิ่มสมาชิกหรือนำเข้าจากไฟล์ Excel/CSV',
+        canWrite() ? el('div', { class: 'row', style: 'justify-content:center;gap:.5rem' }, [
+          el('button', { class: 'btn btn-primary', type: 'button', text: '+ เพิ่มสมาชิก', onclick: function () { openMemberForm(); } }),
+          el('button', { class: 'btn', type: 'button', text: '📥 นำเข้าไฟล์', onclick: openImportModal })
+        ]) : null));
+      return;
+    }
+
+    var selected = {};
+    var bulkBar = el('div', { class: 'hidden', id: 'memBulk', style: 'padding:.7rem 1.1rem;background:var(--brand-50);border-bottom:1px solid var(--brand-200)' });
+    list.appendChild(bulkBar);
+
+    function updateBulk() {
+      var ids = Object.keys(selected).map(Number);
+      if (!ids.length) { bulkBar.className = 'hidden'; return; }
+      bulkBar.className = 'row-between';
+      bulkBar.innerHTML = '';
+      bulkBar.appendChild(el('span', { class: 'bold small', text: 'เลือกไว้ ' + ids.length + ' คน' }));
+      bulkBar.appendChild(el('div', { class: 'row', style: 'gap:.35rem' }, [
+        el('button', { class: 'btn btn-sm', type: 'button', text: '🔑 รีเซ็ตรหัส', onclick: function () { bulkResetPin(ids); } }),
+        el('button', { class: 'btn btn-sm', type: 'button', text: '🏷️ ย้ายกลุ่ม', onclick: function () { bulkMoveGroup(ids, groups); } }),
+        el('button', { class: 'btn btn-sm', type: 'button', text: '⏸ ปิดใช้งาน', onclick: function () { bulkStatus(ids, false); } }),
+        el('button', { class: 'btn btn-sm', type: 'button', text: '▶ เปิดใช้งาน', onclick: function () { bulkStatus(ids, true); } }),
+        el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑 ลบ', onclick: function () { bulkDelete(ids); } }),
+        el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: 'ยกเลิก', onclick: function () {
+          selected = {};
+          $$('.row-check', list).forEach(function (cb) { cb.checked = false; cb.closest('tr').classList.remove('is-selected'); });
+          updateBulk();
+        }})
+      ]));
+    }
+
+    var headCheck = el('input', { type: 'checkbox', class: 'row-check', onchange: function (e) {
+      $$('.row-check', list).forEach(function (cb) {
+        if (cb === e.target) return;
+        cb.checked = e.target.checked;
+        if (e.target.checked) selected[cb.value] = true; else delete selected[cb.value];
+        cb.closest('tr').classList.toggle('is-selected', e.target.checked);
+      });
+      updateBulk();
+    }});
+
+    list.appendChild(el('div', { class: 'table-wrap' }, [
+      el('table', { class: 'data cards' }, [
+        el('thead', {}, [el('tr', {}, [
+          el('th', { class: 'mid', style: 'width:40px' }, [canWrite() ? headCheck : null]),
+          el('th', { text: 'รหัส' }), el('th', { text: 'ชื่อ-สกุล' }),
+          el('th', { class: 'mid', text: 'กลุ่ม/ชั้น' }), el('th', { text: 'ติดต่อ' }),
+          data.show_pin ? el('th', { class: 'mid', text: 'รหัส PIN' }) : null,
+          el('th', { class: 'mid', text: 'สถานะ' }), el('th', { class: 'mid', style: 'width:130px' })
+        ])]),
+        el('tbody', {}, data.members.map(function (m) {
+          var cb = el('input', { type: 'checkbox', class: 'row-check', value: String(m.id), onchange: function (e) {
+            if (e.target.checked) selected[m.id] = true; else delete selected[m.id];
+            e.target.closest('tr').classList.toggle('is-selected', e.target.checked);
+            updateBulk();
+          }});
+          return el('tr', {}, [
+            el('td', { class: 'mid', 'data-label': '' }, [canWrite() ? cb : null]),
+            el('td', { class: 'mono', 'data-label': 'รหัส', text: m.member_code }),
+            el('td', { 'data-label': 'ชื่อ-สกุล' }, [
+              el('button', { class: 'btn btn-ghost bold', style: 'padding:0;color:var(--brand-600)', type: 'button', text: m.full_name, onclick: function () { navigate('members', { id: m.id }); } }),
+              m.assignment_count ? el('div', { class: 'tiny muted', text: 'อยู่ใน ' + m.assignment_count + ' รายการจัดเก็บ' }) : null
+            ]),
+            el('td', { class: 'mid small', 'data-label': 'กลุ่ม/ชั้น', text: m.group_name || '-' }),
+            el('td', { class: 'small', 'data-label': 'ติดต่อ' }, [
+              m.phone ? el('div', { class: 'mono', text: m.phone }) : null,
+              m.email ? el('div', { class: 'tiny muted', text: m.email }) : null,
+              (!m.phone && !m.email) ? el('span', { class: 'muted', text: '-' }) : null
+            ]),
+            data.show_pin ? el('td', { class: 'mid mono', 'data-label': 'รหัส PIN' }, [
+              m.pin_plain
+                ? el('button', { class: 'btn btn-sm', type: 'button', text: m.pin_plain, title: 'คลิกเพื่อคัดลอก', onclick: function () {
+                    copyText(m.pin_plain).then(function (ok) { toast(ok ? 'คัดลอก ' + m.pin_plain + ' แล้ว' : 'คัดลอกไม่สำเร็จ', ok ? 'success' : 'warn'); });
+                  }})
+                : el('span', { class: 'muted tiny', text: 'ไม่แสดง' })
+            ]) : null,
+            el('td', { class: 'mid', 'data-label': 'สถานะ' }, [
+              el('span', { class: 'badge ' + (m.is_active ? 'badge-open' : 'badge-closed'), text: m.is_active ? 'ใช้งาน' : 'ปิดใช้งาน' })
+            ]),
+            el('td', { class: 'mid cell-full', 'data-label': '' }, [
+              canWrite() ? el('div', { class: 'row', style: 'gap:.25rem;justify-content:center' }, [
+                el('button', { class: 'btn btn-sm', type: 'button', text: '✎', title: 'แก้ไข', onclick: function () { openMemberForm(m); } }),
+                el('button', { class: 'btn btn-sm', type: 'button', text: '🔑', title: 'รีเซ็ตรหัส', onclick: function () { resetPin(m); } }),
+                el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑', title: 'ลบ', onclick: function () { bulkDelete([m.id]); } })
+              ]) : el('button', { class: 'btn btn-sm', type: 'button', text: 'ดู', onclick: function () { navigate('members', { id: m.id }); } })
+            ])
+          ]);
+        }))
+      ])
+    ]));
+
+    var pg = pager(data, function (p) { memFilters.page = p; loadMembers(); });
+    if (pg) list.appendChild(pg);
+  });
+}
+
+function renderMemFilters(groups, total) {
+  var box = $('#memFilters');
+  if (!box) return;
+  box.innerHTML = '';
+  box.appendChild(el('div', { class: 'filters' }, [
+    el('div', { class: 'field' }, [
+      el('label', { text: 'ค้นหา (ทั้งหมด ' + total + ' คน)' }),
+      el('input', { type: 'search', placeholder: 'ชื่อ รหัส หรือเบอร์โทร', value: memFilters.q,
+        oninput: debounce(function (e) { memFilters.q = e.target.value; memFilters.page = 1; loadMembers(); }, 350) })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'กลุ่ม/ชั้น' }),
+      el('select', { onchange: function (e) { memFilters.group = e.target.value; memFilters.page = 1; loadMembers(); } },
+        [el('option', { value: '', text: 'ทุกกลุ่ม' })].concat(groups.map(function (g) {
+          return el('option', { value: String(g.id), text: g.name + ' (' + g.member_count + ')', selected: String(g.id) === memFilters.group });
+        })))
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'สถานะ' }),
+      el('select', { onchange: function (e) { memFilters.active = e.target.value; memFilters.page = 1; loadMembers(); } }, [
+        el('option', { value: '', text: 'ทั้งหมด' }),
+        el('option', { value: '1', text: 'ใช้งาน', selected: memFilters.active === '1' }),
+        el('option', { value: '0', text: 'ปิดใช้งาน', selected: memFilters.active === '0' })
+      ])
+    ])
+  ]));
+}
+
+function openMemberForm(m) {
+  if (needWrite()) return;
+  call('apiGroups', {}).then(function (r) {
+    var groups = r.groups;
+    var isEdit = !!m;
+    var form = el('form', { id: 'mForm', autocomplete: 'off' }, [
+      el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'mCode', text: 'รหัสสมาชิก' }),
+          el('input', { type: 'text', id: 'mCode', maxlength: '40', value: m ? m.member_code : '', placeholder: 'เว้นว่างเพื่อสร้างอัตโนมัติ' })
+        ]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'mGroup', text: 'กลุ่ม/ชั้นเรียน' }),
+          el('select', { id: 'mGroup' }, [el('option', { value: '', text: '— ไม่ระบุ —' })].concat(
+            groups.map(function (g) { return el('option', { value: String(g.id), text: g.name, selected: m && m.group_id === g.id }); })))
+        ])
+      ]),
+      el('div', { class: 'grid grid-3', style: 'gap:.7rem' }, [
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'mPrefix', text: 'คำนำหน้า' }),
+          el('input', { type: 'text', id: 'mPrefix', list: 'prefixList', maxlength: '40', value: m ? (m.prefix || '') : '' }),
+          el('datalist', { id: 'prefixList' }, ['เด็กชาย', 'เด็กหญิง', 'นาย', 'นาง', 'นางสาว'].map(function (p) { return el('option', { value: p }); }))
+        ]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { class: 'req', for: 'mFirst', text: 'ชื่อ' }),
+          el('input', { type: 'text', id: 'mFirst', required: true, maxlength: '120', value: m ? m.first_name : '' })
+        ]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { class: 'req', for: 'mLast', text: 'นามสกุล' }),
+          el('input', { type: 'text', id: 'mLast', required: true, maxlength: '120', value: m ? m.last_name : '' })
+        ])
+      ]),
+      el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'mPhone', text: 'เบอร์โทรศัพท์' }),
+          el('input', { type: 'tel', id: 'mPhone', maxlength: '40', value: m ? (m.phone || '') : '' })
+        ]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'mEmail', text: 'อีเมล' }),
+          el('input', { type: 'email', id: 'mEmail', maxlength: '160', value: m ? (m.email || '') : '' })
+        ])
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'mGuardian', text: 'ชื่อผู้ปกครอง' }),
+        el('input', { type: 'text', id: 'mGuardian', maxlength: '160', value: m ? (m.guardian || '') : '' })
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'mNote', text: 'หมายเหตุ' }),
+        el('input', { type: 'text', id: 'mNote', maxlength: '500', value: m ? (m.note || '') : '' })
+      ]),
+      isEdit
+        ? el('label', { class: 'check' }, [el('input', { type: 'checkbox', id: 'mActive', checked: !!m.is_active }), el('span', { text: 'เปิดใช้งาน' })])
+        : el('div', { class: 'alert alert-info small' }, ['ระบบจะสร้างรหัส PIN 6 หลักให้อัตโนมัติ และแสดงให้ทราบหลังบันทึก'])
+    ]);
+
+    var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'mForm', text: isEdit ? 'บันทึก' : 'เพิ่มสมาชิก' });
+    var mo = modal({ title: isEdit ? 'แก้ไขสมาชิก — ' + m.full_name : 'เพิ่มสมาชิกใหม่', body: form,
+      footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { mo.close(); } }), btn] });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      busy(btn, true, 'กำลังบันทึก...');
+      var payload = {
+        id: m ? m.id : null,
+        member_code: $('#mCode', form).value, prefix: $('#mPrefix', form).value,
+        first_name: $('#mFirst', form).value, last_name: $('#mLast', form).value,
+        group_id: $('#mGroup', form).value, phone: $('#mPhone', form).value,
+        email: $('#mEmail', form).value, guardian: $('#mGuardian', form).value, note: $('#mNote', form).value
+      };
+      if (isEdit) payload.is_active = $('#mActive', form).checked;
+      call('apiSaveMember', payload)
+        .then(function (r) {
+          mo.close();
+          if (!isEdit && r.pin) showCredentials([{ member_code: r.member_code, full_name: r.full_name, pin: r.pin, group: '' }]);
+          else toast('บันทึกเรียบร้อย', 'success');
+          loadMembers();
+        })
+        .catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+    });
+  }).catch(function (e) { toast(e.message, 'error'); });
+}
+
+/* ------------------------------ นำเข้าสมาชิก ------------------------------ */
+function openImportModal() {
+  if (needWrite()) return;
+  var parsedRows = null;
+
+  var form = el('form', { id: 'impForm' }, [
+    el('div', { class: 'alert alert-info', style: 'margin-bottom:1rem' }, [
+      el('div', {}, [
+        el('strong', { text: 'รองรับไฟล์ CSV และการคัดลอกวางจาก Excel ' }),
+        el('div', { class: 'small', style: 'margin-top:.3rem' }, [
+          'หัวคอลัมน์ที่ระบบรู้จัก: รหัสสมาชิก, คำนำหน้า, ชื่อ, นามสกุล (หรือ "ชื่อ-สกุล" รวมกัน), กลุ่ม, เบอร์โทร, อีเมล, ผู้ปกครอง, หมายเหตุ'
+        ])
+      ])
+    ]),
+    el('div', { class: 'row', style: 'gap:.4rem;margin-bottom:1rem' }, [
+      el('button', { class: 'btn btn-sm grow', type: 'button', text: '⬇ ดาวน์โหลดไฟล์ต้นแบบ CSV', onclick: downloadTemplate })
+    ]),
+    el('div', { class: 'tabs' }, [
+      el('button', { class: 'tab active', type: 'button', dataset: { pane: 'file' }, text: '📁 เลือกไฟล์ CSV' }),
+      el('button', { class: 'tab', type: 'button', dataset: { pane: 'paste' }, text: '📋 คัดลอกวางจาก Excel' })
+    ]),
+    el('div', { id: 'paneFile' }, [
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'impFile', text: 'เลือกไฟล์ CSV' }),
+        el('input', { type: 'file', id: 'impFile', accept: '.csv,text/csv,text/plain' }),
+        el('div', { class: 'hint', text: 'บันทึกจาก Excel ด้วยรูปแบบ "CSV UTF-8 (Comma delimited)" เพื่อให้ภาษาไทยถูกต้อง' })
+      ])
+    ]),
+    el('div', { id: 'panePaste', class: 'hidden' }, [
+      el('div', { class: 'field' }, [
+        el('label', { for: 'impPaste', text: 'วางข้อมูลจาก Excel (เลือกทั้งตารางรวมหัวตาราง แล้วคัดลอกมาวาง)' }),
+        el('textarea', { id: 'impPaste', rows: '8', placeholder: 'รหัสสมาชิก\tคำนำหน้า\tชื่อ\tนามสกุล\tกลุ่ม\n\tเด็กชาย\tสมชาย\tใจดี\tม.1/1' })
+      ])
+    ]),
+    el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'impUpdate' }),
+      el('span', {}, [
+        el('span', { class: 'bold', text: 'อัปเดตข้อมูลของสมาชิกที่มีอยู่แล้ว' }),
+        el('div', { class: 'tiny muted', text: 'ถ้าไม่ติ๊ก ระบบจะข้ามรายชื่อที่ซ้ำ' })
+      ])
+    ]),
+    el('div', { id: 'impResult', style: 'margin-top:1rem' })
+  ]);
+
+  $$('button.tab', form).forEach(function (t) {
+    t.addEventListener('click', function () {
+      $$('button.tab', form).forEach(function (x) { x.classList.toggle('active', x === t); });
+      $('#paneFile', form).classList.toggle('hidden', t.dataset.pane !== 'file');
+      $('#panePaste', form).classList.toggle('hidden', t.dataset.pane !== 'paste');
+    });
+  });
+
+  var previewBtn = el('button', { class: 'btn', type: 'button', text: '👁 ตรวจสอบก่อนนำเข้า' });
+  var importBtn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'impForm', text: '📥 นำเข้าข้อมูล' });
+  var mo = modal({ title: 'นำเข้าสมาชิกจากไฟล์', body: form, size: 'modal-lg',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ปิด', onclick: function () { mo.close(); } }), previewBtn, importBtn] });
+
+  function collectRows() {
+    return new Promise(function (resolve, reject) {
+      var pasteVal = $('#impPaste', form).value;
+      if (pasteVal && pasteVal.trim()) {
+        resolve(parseDelimited(pasteVal));
+        return;
+      }
+      var file = $('#impFile', form).files[0];
+      if (!file) { reject(new Error('กรุณาเลือกไฟล์ หรือวางข้อมูลจาก Excel')); return; }
+      var reader = new FileReader();
+      reader.onload = function () { resolve(parseDelimited(String(reader.result || ''))); };
+      reader.onerror = function () { reject(new Error('อ่านไฟล์ไม่สำเร็จ')); };
+      reader.readAsText(file, 'UTF-8');
+    });
+  }
+
+  function doImport(dryRun) {
+    var btn = dryRun ? previewBtn : importBtn;
+    busy(btn, true, dryRun ? 'กำลังตรวจสอบ...' : 'กำลังนำเข้า...');
+    collectRows().then(function (rows) {
+      if (!rows.length) throw new Error('ไม่พบข้อมูลในไฟล์');
+      parsedRows = rows;
+      return call('apiImportMembers', { rows: rows, dry_run: dryRun, update_existing: $('#impUpdate', form).checked });
+    }).then(function (r) {
+      renderImportResult(r, dryRun);
+      if (!dryRun) {
+        toast('นำเข้าสำเร็จ: เพิ่ม ' + r.created + ' คน, อัปเดต ' + r.updated + ' คน', 'success', 6000);
+        loadMembers();
+        if (r.credentials && r.credentials.length) {
+          setTimeout(function () { mo.close(); showCredentials(r.credentials); }, 900);
+        }
+      }
+    }).catch(function (ex) {
+      var box = $('#impResult', form);
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'alert alert-error' }, [ex.message]));
+    }).then(function () { busy(btn, false); });
+  }
+
+  function renderImportResult(r, dryRun) {
+    var box = $('#impResult', form);
+    box.innerHTML = '';
+    box.appendChild(el('div', { class: 'alert ' + (r.errors.length ? 'alert-warn' : 'alert-success') }, [
+      el('div', {}, [
+        el('strong', { text: dryRun ? 'ผลการตรวจสอบ (ยังไม่บันทึก): ' : 'ผลการนำเข้า: ' }),
+        'อ่านได้ ' + r.total_rows + ' แถว • เพิ่มใหม่ ' + r.created + ' • อัปเดต ' + r.updated + ' • ข้าม ' + r.skipped,
+        r.errors.length ? el('div', { class: 'small', style: 'margin-top:.3rem' }, ['มีข้อผิดพลาด ' + r.errors.length + ' แถว']) : null
+      ])
+    ]));
+    if (r.errors.length) {
+      box.appendChild(el('details', { style: 'margin-top:.5rem' }, [
+        el('summary', { style: 'cursor:pointer;font-weight:700', text: 'ดูข้อผิดพลาด (' + r.errors.length + ')' }),
+        el('ul', { class: 'small', style: 'margin:.4rem 0;padding-inline-start:1.2rem;max-height:160px;overflow-y:auto' },
+          r.errors.slice(0, 80).map(function (x) { return el('li', { text: 'บรรทัดที่ ' + x.line + ': ' + x.message }); }))
+      ]));
+    }
+    if (r.preview && r.preview.length) {
+      box.appendChild(el('div', { class: 'table-wrap', style: 'max-height:280px;overflow-y:auto;margin-top:.5rem' }, [
+        el('table', { class: 'data' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: 'บรรทัด' }), el('th', { text: 'การทำงาน' }),
+            el('th', { text: 'รหัส' }), el('th', { text: 'ชื่อ-สกุล' }), el('th', { text: 'กลุ่ม' })
+          ])]),
+          el('tbody', {}, r.preview.slice(0, 200).map(function (x) {
+            return el('tr', {}, [
+              el('td', { class: 'mono', text: String(x.line) }),
+              el('td', {}, [el('span', { class: 'badge ' + (x.action === 'เพิ่มใหม่' ? 'badge-open' : x.action === 'อัปเดต' ? 'badge-partial' : 'badge-draft'), text: x.action })]),
+              el('td', { class: 'mono', text: x.member_code || '-' }),
+              el('td', { text: x.name }),
+              el('td', { text: x.group || '-' })
+            ]);
+          }))
+        ])
+      ]));
+    }
+  }
+
+  previewBtn.addEventListener('click', function () { doImport(true); });
+  form.addEventListener('submit', function (e) { e.preventDefault(); doImport(false); });
+}
+
+/** แยกข้อความเป็นตาราง รองรับทั้ง CSV (คั่นด้วย ,) และการคัดลอกจาก Excel (คั่นด้วย Tab) */
+function parseDelimited(text) {
+  text = String(text).replace(/^﻿/, '');
+  var firstLine = text.split(/\r?\n/)[0] || '';
+  var delim = (firstLine.indexOf('\t') >= 0) ? '\t' : ',';
+  var rows = [];
+  var row = [], field = '', inQ = false;
+  for (var i = 0; i < text.length; i++) {
+    var ch = text.charAt(i);
+    if (inQ) {
+      if (ch === '"') {
+        if (text.charAt(i + 1) === '"') { field += '"'; i++; }
+        else inQ = false;
+      } else field += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === delim) { row.push(field); field = ''; }
+    else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else if (ch === '\r') { /* ข้าม */ }
+    else field += ch;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(function (r) {
+    for (var k = 0; k < r.length; k++) if (String(r[k]).trim()) return true;
+    return false;
+  });
+}
+
+function downloadTemplate() {
+  var rows = [
+    ['รหัสสมาชิก', 'คำนำหน้า', 'ชื่อ', 'นามสกุล', 'กลุ่ม', 'เบอร์โทร', 'อีเมล', 'ผู้ปกครอง', 'หมายเหตุ'],
+    ['', 'เด็กชาย', 'สมชาย', 'ใจดี', 'ม.1/1', '0812345678', '', 'นายสมบัติ ใจดี', ''],
+    ['', 'เด็กหญิง', 'สมหญิง', 'รักเรียน', 'ม.1/1', '', '', '', '']
+  ];
+  var csv = '﻿' + rows.map(function (r) {
+    return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\r\n');
+  downloadText(csv, 'member-import-template.csv', 'text/csv;charset=utf-8');
+}
+
+function downloadText(content, filename, mime) {
+  try {
+    var blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = el('a', { href: url, download: filename });
+    document.body.appendChild(a);
+    a.click();
+    a.parentNode.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  } catch (e) {
+    toast('ดาวน์โหลดไม่สำเร็จในเบราว์เซอร์นี้', 'error');
+  }
+}
+
+function showCredentials(list) {
+  var body = el('div', {}, [
+    el('div', { class: 'alert alert-warn', style: 'margin-bottom:1rem' }, [
+      el('div', {}, [
+        el('strong', { text: 'กรุณาบันทึกหรือพิมพ์รหัสเหล่านี้ไว้ ' }),
+        'เพื่อแจ้งให้สมาชิกใช้ยืนยันตัวตนตอนแจ้งชำระเงิน (ดูย้อนหลังได้ที่หน้าสมาชิก หากเปิดการแสดงรหัสไว้)'
+      ])
+    ]),
+    el('div', { class: 'table-wrap', style: 'max-height:400px;overflow-y:auto' }, [
+      el('table', { class: 'data' }, [
+        el('thead', {}, [el('tr', {}, [
+          el('th', { text: 'รหัสสมาชิก' }), el('th', { text: 'ชื่อ-สกุล' }),
+          el('th', { text: 'กลุ่ม' }), el('th', { class: 'mid', text: 'รหัส PIN' })
+        ])]),
+        el('tbody', {}, list.map(function (c) {
+          return el('tr', {}, [
+            el('td', { class: 'mono', text: c.member_code }),
+            el('td', { text: c.full_name }),
+            el('td', { class: 'small muted', text: c.group || '-' }),
+            el('td', { class: 'mid mono bold', style: 'font-size:1.1rem;letter-spacing:.1em', text: c.pin })
+          ]);
+        }))
+      ])
+    ])
+  ]);
+
+  var m = modal({ title: 'รหัส PIN ของสมาชิก (' + list.length + ' คน)', body: body, size: 'modal-lg',
+    footer: [
+      el('button', { class: 'btn', type: 'button', text: '⬇ บันทึกเป็น CSV', onclick: function () {
+        var csv = '﻿' + ['รหัสสมาชิก,ชื่อ-สกุล,กลุ่ม,รหัส PIN'].concat(list.map(function (c) {
+          return '"' + c.member_code + '","' + c.full_name + '","' + (c.group || '') + '","' + c.pin + '"';
+        })).join('\r\n');
+        downloadText(csv, 'รหัสสมาชิก-' + new Date().toISOString().slice(0, 10) + '.csv', 'text/csv;charset=utf-8');
+      }}),
+      el('button', { class: 'btn', type: 'button', text: '🖨 พิมพ์', onclick: function () { printNode(body); } }),
+      el('button', { class: 'btn btn-primary', type: 'button', text: 'เสร็จสิ้น', onclick: function () { m.close(); } })
+    ] });
+}
+
+function resetPin(m) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'รีเซ็ตรหัสสมาชิก',
+    message: 'ต้องการสร้างรหัส PIN ใหม่ให้ ' + m.full_name + ' (' + m.member_code + ') ใช่หรือไม่? รหัสเดิมจะใช้ไม่ได้อีก',
+    confirmText: 'รีเซ็ตรหัส'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiResetPin', { ids: [m.id] })
+      .then(function (r) { showCredentials(r.members); loadMembers(); })
+      .catch(function (e) { toast(e.message, 'error'); });
+  });
+}
+
+function bulkResetPin(ids) {
+  if (needWrite()) return;
+  confirmDialog({ title: 'รีเซ็ตรหัสหลายคน', message: 'ต้องการสร้างรหัส PIN ใหม่ให้สมาชิก ' + ids.length + ' คนใช่หรือไม่?', confirmText: 'รีเซ็ต ' + ids.length + ' คน' })
+    .then(function (yes) {
+      if (!yes) return;
+      call('apiResetPin', { ids: ids })
+        .then(function (r) { showCredentials(r.members); loadMembers(); })
+        .catch(function (e) { toast(e.message, 'error'); });
+    });
+}
+
+function bulkStatus(ids, active) {
+  if (needWrite()) return;
+  call('apiBulkMemberStatus', { ids: ids, is_active: active })
+    .then(function () { toast((active ? 'เปิด' : 'ปิด') + 'ใช้งานสมาชิก ' + ids.length + ' คนแล้ว', 'success'); loadMembers(); })
+    .catch(function (e) { toast(e.message, 'error'); });
+}
+
+function bulkMoveGroup(ids, groups) {
+  if (needWrite()) return;
+  var sel = el('select', { id: 'bgSel' }, [el('option', { value: '', text: '— ไม่มีกลุ่ม —' })].concat(
+    groups.map(function (g) { return el('option', { value: String(g.id), text: g.name }); })));
+  var m = modal({
+    title: 'ย้ายกลุ่มสมาชิก', size: 'modal-sm',
+    body: el('div', {}, [el('div', { class: 'field' }, [el('label', { text: 'ย้ายสมาชิก ' + ids.length + ' คนไปยังกลุ่ม' }), sel])]),
+    footer: [
+      el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }),
+      el('button', { class: 'btn btn-primary', type: 'button', text: 'ย้าย', onclick: function () {
+        call('apiBulkMemberGroup', { ids: ids, group_id: sel.value })
+          .then(function () { m.close(); toast('ย้ายกลุ่มเรียบร้อย', 'success'); loadMembers(); })
+          .catch(function (e) { toast(e.message, 'error'); });
+      }})
+    ]
+  });
+}
+
+function bulkDelete(ids) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'ลบสมาชิก', danger: true, confirmText: 'ลบ ' + ids.length + ' คน',
+    message: 'ต้องการลบสมาชิก ' + ids.length + ' คนใช่หรือไม่? ข้อมูลการชำระเงินของสมาชิกเหล่านี้จะถูกลบไปด้วย'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiDeleteMembers', { ids: ids })
+      .then(function (r) { toast('ลบสมาชิก ' + r.count + ' คนแล้ว', 'success'); loadMembers(); })
+      .catch(function (e) {
+        confirmDialog({ title: 'ยืนยันอีกครั้ง', danger: true, confirmText: 'ลบถาวร', message: e.message })
+          .then(function (yes2) {
+            if (!yes2) return;
+            call('apiDeleteMembers', { ids: ids, force: true })
+              .then(function (r2) { toast('ลบสมาชิก ' + r2.count + ' คนแล้ว', 'success'); loadMembers(); })
+              .catch(function (e2) { toast(e2.message, 'error'); });
+          });
+      });
+  });
+}
+
+function renderMemberDetail(view, id) {
+  return call('apiMember', { id: id }).then(function (d) {
+    var m = d.member;
+    var t = d.totals;
+    view.innerHTML = '';
+    view.appendChild(pageHead(m.full_name, m.member_code + (m.group_name ? ' • ' + m.group_name : ''), [
+      el('button', { class: 'btn btn-sm', type: 'button', text: '← กลับ', onclick: function () { navigate('members'); } }),
+      el('button', { class: 'btn btn-sm', type: 'button', text: '⬇ ส่งออกรายงาน', onclick: function () { exportReport('member', { member: m.id }); } }),
+      canWrite() ? el('button', { class: 'btn btn-sm', type: 'button', text: '🔑 รีเซ็ตรหัส', onclick: function () { resetPin(m); } }) : null,
+      canWrite() ? el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '✎ แก้ไข', onclick: function () { openMemberForm(m); } }) : null
+    ]));
+
+    view.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+      statCard('รายการทั้งหมด', t.total_members, 'รายการ', ''),
+      statCard('ยอดที่ต้องชำระ', money(t.total_due), 'บาท', 'is-blue'),
+      statCard('ชำระแล้ว', money(t.total_paid), 'บาท', 'is-green'),
+      statCard('คงค้าง', money(t.total_outstanding), 'บาท', t.total_outstanding > 0 ? 'is-red' : 'is-green')
+    ]));
+
+    view.appendChild(el('div', { class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem' }, [
+      el('section', { class: 'card' }, [
+        el('h2', { style: 'font-size:1.05rem', text: 'ข้อมูลสมาชิก' }),
+        el('dl', { class: 'kv' }, [
+          el('dt', { text: 'รหัสสมาชิก' }), el('dd', { class: 'mono', text: m.member_code }),
+          el('dt', { text: 'ชื่อ-สกุล' }), el('dd', { text: m.full_name }),
+          el('dt', { text: 'กลุ่ม/ชั้น' }), el('dd', { text: m.group_name || '-' }),
+          el('dt', { text: 'เบอร์โทร' }), el('dd', { class: 'mono', text: m.phone || '-' }),
+          el('dt', { text: 'อีเมล' }), el('dd', { text: m.email || '-' }),
+          el('dt', { text: 'ผู้ปกครอง' }), el('dd', { text: m.guardian || '-' }),
+          m.pin_plain ? el('dt', { text: 'รหัส PIN' }) : null,
+          m.pin_plain ? el('dd', { class: 'mono bold', text: m.pin_plain }) : null,
+          el('dt', { text: 'สถานะ' }),
+          el('dd', {}, [el('span', { class: 'badge ' + (m.is_active ? 'badge-open' : 'badge-closed'), text: m.is_active ? 'ใช้งาน' : 'ปิดใช้งาน' })]),
+          m.note ? el('dt', { text: 'หมายเหตุ' }) : null,
+          m.note ? el('dd', { text: m.note }) : null
+        ])
+      ]),
+      el('section', { class: 'card card-pad-0' }, [
+        el('div', { class: 'card-head' }, [el('h2', { style: 'font-size:1.05rem', text: 'ประวัติการชำระเงินทุกรอบ' })]),
+        d.ledger.length ? el('div', { class: 'table-wrap' }, [
+          el('table', { class: 'data cards' }, [
+            el('thead', {}, [el('tr', {}, [
+              el('th', { text: 'รายการจัดเก็บ' }), el('th', { class: 'num', text: 'ต้องชำระ' }),
+              el('th', { class: 'num', text: 'ชำระแล้ว' }), el('th', { class: 'num', text: 'คงเหลือ' }),
+              el('th', { class: 'mid', text: 'สถานะ' })
+            ])]),
+            el('tbody', {}, d.ledger.map(function (r) {
+              return el('tr', {}, [
+                el('td', { 'data-label': 'รายการ' }, [
+                  el('button', { class: 'btn btn-ghost bold', style: 'padding:0;color:var(--brand-600)', type: 'button', text: r.collection_name, onclick: function () { navigate('collections', { id: r.collection_id }); } }),
+                  el('div', { class: 'tiny muted mono', text: r.collection_code })
+                ]),
+                el('td', { class: 'num', 'data-label': 'ต้องชำระ', text: money(r.net_due) }),
+                el('td', { class: 'num', 'data-label': 'ชำระแล้ว', text: money(r.paid_amount) }),
+                el('td', { class: 'num', 'data-label': 'คงเหลือ', text: money(r.outstanding) }),
+                el('td', { class: 'mid', 'data-label': 'สถานะ' }, [statusBadge(r.status, r.status_label)])
+              ]);
+            })),
+            el('tfoot', {}, [el('tr', {}, [
+              el('td', { text: 'รวมทั้งสิ้น' }),
+              el('td', { class: 'num', text: money(t.total_due) }),
+              el('td', { class: 'num', text: money(t.total_paid) }),
+              el('td', { class: 'num', text: money(t.total_outstanding) }),
+              el('td')
+            ])])
+          ])
+        ]) : emptyState('📭', 'ยังไม่มีรายการที่ต้องชำระ')
+      ])
+    ]));
+  });
+}
+
+/* ================================ กลุ่ม ================================ */
+route('groups', function (view) {
+  return call('apiGroups', {}).then(function (r) {
+    var groups = r.groups;
+    view.innerHTML = '';
+    view.appendChild(pageHead('กลุ่ม/ชั้นเรียน', 'ใช้จัดกลุ่มสมาชิกเพื่อกำหนดผู้ที่ต้องชำระแบบรายกลุ่ม', [
+      canWrite() ? el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '+ เพิ่มกลุ่ม', onclick: function () { openGroupForm(); } }) : null
+    ]));
+
+    var card = el('section', { class: 'card card-pad-0' });
+    if (!groups.length) {
+      card.appendChild(emptyState('🏷️', 'ยังไม่มีกลุ่ม', 'เพิ่มกลุ่มหรือชั้นเรียน เช่น ม.1/1, ม.2/1, คณะครู'));
+    } else {
+      card.appendChild(el('div', { class: 'table-wrap' }, [
+        el('table', { class: 'data cards' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: 'ชื่อกลุ่ม' }), el('th', { text: 'รายละเอียด' }),
+            el('th', { class: 'num', text: 'จำนวนสมาชิก' }), el('th', { class: 'mid', text: 'สถานะ' }),
+            el('th', { class: 'mid', style: 'width:110px' })
+          ])]),
+          el('tbody', {}, groups.map(function (g) {
+            return el('tr', {}, [
+              el('td', { class: 'bold', 'data-label': 'ชื่อกลุ่ม', text: g.name }),
+              el('td', { class: 'small muted', 'data-label': 'รายละเอียด', text: g.description || '-' }),
+              el('td', { class: 'num', 'data-label': 'จำนวนสมาชิก' }, [
+                el('button', { class: 'btn btn-ghost', style: 'padding:0;color:var(--brand-600)', type: 'button', text: g.member_count + ' คน',
+                  onclick: function () { memFilters.group = String(g.id); memFilters.page = 1; navigate('members'); } })
+              ]),
+              el('td', { class: 'mid', 'data-label': 'สถานะ' }, [
+                el('span', { class: 'badge ' + (g.is_active ? 'badge-open' : 'badge-closed'), text: g.is_active ? 'ใช้งาน' : 'ปิด' })
+              ]),
+              el('td', { class: 'mid cell-full', 'data-label': '' }, [
+                canWrite() ? el('div', { class: 'row', style: 'gap:.25rem;justify-content:center' }, [
+                  el('button', { class: 'btn btn-sm', type: 'button', text: '✎', onclick: function () { openGroupForm(g); } }),
+                  el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑', onclick: function () { deleteGroup(g); } })
+                ]) : null
+              ])
+            ]);
+          }))
+        ])
+      ]));
+    }
+    view.appendChild(card);
+  });
+});
+
+function openGroupForm(g) {
+  if (needWrite()) return;
+  var form = el('form', { id: 'gForm' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'gName', text: 'ชื่อกลุ่ม/ชั้นเรียน' }),
+      el('input', { type: 'text', id: 'gName', required: true, maxlength: '120', value: g ? g.name : '', placeholder: 'เช่น ม.1/1' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'gDesc', text: 'รายละเอียด' }),
+      el('input', { type: 'text', id: 'gDesc', maxlength: '255', value: g ? (g.description || '') : '' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'gSort', text: 'ลำดับการแสดง' }),
+      el('input', { type: 'number', id: 'gSort', value: g ? String(g.sort_order) : '0' })
+    ])
+  ]);
+  var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'gForm', text: g ? 'บันทึก' : 'เพิ่มกลุ่ม' });
+  var m = modal({ title: g ? 'แก้ไขกลุ่ม' : 'เพิ่มกลุ่มใหม่', body: form, size: 'modal-sm',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true);
+    call('apiSaveGroup', {
+      id: g ? g.id : null, name: $('#gName', form).value,
+      description: $('#gDesc', form).value, sort_order: $('#gSort', form).value
+    }).then(function () { m.close(); toast('บันทึกเรียบร้อย', 'success'); reload(); })
+      .catch(function (ex) { toast(ex.message, 'error'); busy(btn, false); });
+  });
+}
+
+function deleteGroup(g) {
+  if (needWrite()) return;
+  confirmDialog({
+    title: 'ลบกลุ่ม', danger: true, confirmText: 'ลบ',
+    message: 'ต้องการลบกลุ่ม "' + g.name + '" ใช่หรือไม่? สมาชิก ' + g.member_count + ' คนในกลุ่มนี้จะถูกย้ายออกจากกลุ่ม (ไม่ถูกลบ)'
+  }).then(function (yes) {
+    if (!yes) return;
+    call('apiDeleteGroup', { id: g.id })
+      .then(function () { toast('ลบกลุ่มแล้ว', 'success'); reload(); })
+      .catch(function (e) { toast(e.message, 'error'); });
+  });
+}
+
+/* ================================ รายงาน ================================ */
+var repState = { tab: 'overview', filters: { collection: '', member: '', group: '', from: '', to: '', status: 'approved', status_filter: '' } };
+
+var REP_TABS = [
+  ['overview', '📊 ภาพรวมทุกรายการ'],
+  ['collection', '📋 รายงานรายชุด'],
+  ['members', '👥 สรุปรายบุคคล (ทุกคน)'],
+  ['member', '👤 รายบุคคล (รายคน)'],
+  ['transactions', '🧾 รายการรับชำระ'],
+  ['outstanding', '⚠️ รายชื่อค้างชำระ']
+];
+
+route('reports', function (view) {
+  view.innerHTML = '';
+  view.appendChild(pageHead('รายงานและการส่งออก',
+    'ออกรายงานภาพรวม รายชุด และรายบุคคล พร้อมส่งออกเป็น Google Sheets, Excel, CSV หรือ PDF'));
+
+  var tabs = el('div', { class: 'tabs no-print' }, REP_TABS.map(function (t) {
+    return el('button', {
+      class: 'tab' + (repState.tab === t[0] ? ' active' : ''), type: 'button', text: t[1],
+      onclick: function (e) {
+        repState.tab = t[0];
+        $$('.tabs .tab', view).forEach(function (x) { x.classList.toggle('active', x === e.target); });
+        renderReportTab();
+      }
+    });
+  }));
+  view.appendChild(tabs);
+  view.appendChild(el('div', { id: 'repBody' }));
+  return renderReportTab();
+});
+
+function renderReportTab() {
+  var box = $('#repBody');
+  if (!box) return Promise.resolve();
+  box.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังสร้างรายงาน...</div>';
+  var f = repState.filters;
+  var kind = repState.tab;
+
+  var prep = Promise.all([call('apiCollections', {}), call('apiGroups', {})]);
+
+  if (kind === 'member') {
+    prep = Promise.all([call('apiCollections', {}), call('apiGroups', {}), call('apiMembers', { per_page: 500 })]);
+  }
+
+  return prep.then(function (pre) {
+    var collections = pre[0].collections.filter(function (c) { return c.status !== 'draft'; });
+    var groups = pre[1].groups;
+    var members = pre[2] ? pre[2].members : [];
+
+    if (kind === 'collection' && (!f.collection || !collections.some(function (c) { return String(c.id) === String(f.collection); }))) {
+      f.collection = collections.length ? String(collections[0].id) : '';
+    }
+    if (kind === 'member' && !f.member && members.length) f.member = String(members[0].id);
+
+    if (kind === 'collection' && !f.collection) {
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'card' }, [emptyState('📋', 'ยังไม่มีรายการจัดเก็บที่เปิดใช้งาน')]));
+      return;
+    }
+    if (kind === 'member' && !f.member) {
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'card' }, [emptyState('👤', 'ยังไม่มีสมาชิกในระบบ')]));
+      return;
+    }
+
+    var params = { kind: kind };
+    ['collection', 'member', 'group', 'from', 'to', 'status', 'status_filter'].forEach(function (k) {
+      if (f[k]) params[k] = f[k];
+    });
+
+    return call('apiReport', params).then(function (d) {
+      box.innerHTML = '';
+      box.appendChild(buildFilterBar(kind, collections, groups, members));
+      if (kind === 'overview') drawOverview(box, d);
+      else if (kind === 'collection') drawCollectionReport(box, d);
+      else if (kind === 'members') drawAllMembers(box, d);
+      else if (kind === 'member') drawMemberReport(box, d);
+      else if (kind === 'transactions') drawTransactions(box, d);
+      else drawOutstanding(box, d);
+    });
+  }).catch(function (e) {
+    box.innerHTML = '';
+    box.appendChild(el('div', { class: 'card' }, [el('div', { class: 'alert alert-error' }, [e.message])]));
+  });
+}
+
+function buildFilterBar(kind, collections, groups, members) {
+  var f = repState.filters;
+  var fields = [];
+
+  function selField(label, key, options, width) {
+    return el('div', { class: 'field', style: 'margin:0;min-width:' + (width || 160) + 'px' }, [
+      el('label', { text: label }),
+      el('select', { onchange: function (e) { f[key] = e.target.value; renderReportTab(); } }, options)
+    ]);
+  }
+  function dateField(label, key) {
+    return el('div', { class: 'field', style: 'margin:0' }, [
+      el('label', { text: label }),
+      el('input', { type: 'date', value: f[key] || '', onchange: function (e) { f[key] = e.target.value; renderReportTab(); } })
+    ]);
+  }
+
+  if (kind === 'collection') {
+    fields.push(el('div', { class: 'field grow', style: 'margin:0' }, [
+      el('label', { text: 'รายการจัดเก็บ' }),
+      el('select', { onchange: function (e) { f.collection = e.target.value; renderReportTab(); } },
+        collections.map(function (c) {
+          return el('option', { value: String(c.id), text: c.name + ' (' + c.code + ')', selected: String(c.id) === String(f.collection) });
+        }))
+    ]));
+    fields.push(selField('กรองสถานะ', 'status_filter',
+      [el('option', { value: '', text: 'ทุกสถานะ' })].concat(
+        ['unpaid', 'pending', 'paid', 'partial', 'rejected', 'waived'].map(function (s) {
+          return el('option', { value: s, text: STATUS_META[s].label, selected: s === f.status_filter });
+        }))));
+  } else if (kind === 'member') {
+    fields.push(el('div', { class: 'field grow', style: 'margin:0' }, [
+      el('label', { text: 'เลือกสมาชิก' }),
+      el('select', { onchange: function (e) { f.member = e.target.value; renderReportTab(); } },
+        members.map(function (m) {
+          return el('option', { value: String(m.id), selected: String(m.id) === String(f.member),
+            text: m.member_code + ' — ' + m.full_name + (m.group_name ? ' (' + m.group_name + ')' : '') });
+        }))
+    ]));
+    fields.push(selField('เฉพาะรอบ', 'collection',
+      [el('option', { value: '', text: 'ทุกรอบ (รวมทั้งหมด)' })].concat(collections.map(function (c) {
+        return el('option', { value: String(c.id), text: c.name, selected: String(c.id) === String(f.collection) });
+      })), 180));
+  } else if (kind === 'members') {
+    fields.push(selField('กลุ่ม/ชั้น', 'group',
+      [el('option', { value: '', text: 'ทุกกลุ่ม' })].concat(groups.map(function (g) {
+        return el('option', { value: String(g.id), text: g.name, selected: String(g.id) === String(f.group) });
+      }))));
+    fields.push(selField('เฉพาะรายการจัดเก็บ', 'collection',
+      [el('option', { value: '', text: 'ทุกรายการ (รวมทั้งหมด)' })].concat(collections.map(function (c) {
+        return el('option', { value: String(c.id), text: c.name, selected: String(c.id) === String(f.collection) });
+      })), 180));
+    fields.push(dateField('ตั้งแต่วันที่', 'from'));
+    fields.push(dateField('ถึงวันที่', 'to'));
+  } else if (kind === 'transactions') {
+    fields.push(selField('สถานะ', 'status', [
+      el('option', { value: 'approved', text: 'อนุมัติแล้ว', selected: f.status === 'approved' }),
+      el('option', { value: 'pending', text: 'รอตรวจสอบ', selected: f.status === 'pending' }),
+      el('option', { value: 'rejected', text: 'ไม่ผ่าน', selected: f.status === 'rejected' }),
+      el('option', { value: 'all', text: 'ทั้งหมด', selected: f.status === 'all' })
+    ]));
+    fields.push(selField('รายการจัดเก็บ', 'collection',
+      [el('option', { value: '', text: 'ทุกรายการ' })].concat(collections.map(function (c) {
+        return el('option', { value: String(c.id), text: c.name, selected: String(c.id) === String(f.collection) });
+      })), 180));
+    fields.push(selField('กลุ่ม/ชั้น', 'group',
+      [el('option', { value: '', text: 'ทุกกลุ่ม' })].concat(groups.map(function (g) {
+        return el('option', { value: String(g.id), text: g.name, selected: String(g.id) === String(f.group) });
+      })), 140));
+    fields.push(dateField('ตั้งแต่', 'from'));
+    fields.push(dateField('ถึง', 'to'));
+  } else if (kind === 'outstanding') {
+    fields.push(el('div', { class: 'field grow', style: 'margin:0' }, [
+      el('label', { text: 'รายการจัดเก็บ' }),
+      el('select', { onchange: function (e) { f.collection = e.target.value; renderReportTab(); } },
+        [el('option', { value: '', text: 'ทุกรายการที่เปิดรับชำระ' })].concat(collections.map(function (c) {
+          return el('option', { value: String(c.id), text: c.name, selected: String(c.id) === String(f.collection) });
+        })))
+    ]));
+    fields.push(selField('กลุ่ม/ชั้น', 'group',
+      [el('option', { value: '', text: 'ทุกกลุ่ม' })].concat(groups.map(function (g) {
+        return el('option', { value: String(g.id), text: g.name, selected: String(g.id) === String(f.group) });
+      })), 140));
+  }
+
+  fields.push(el('div', { class: 'row no-print', style: 'gap:.4rem;align-items:flex-end' }, [
+    el('button', { class: 'btn btn-sm btn-green', type: 'button', text: '⬇ ส่งออกไฟล์', onclick: function () {
+      var p = {};
+      ['collection', 'member', 'group', 'from', 'to', 'status', 'status_filter'].forEach(function (k) { if (f[k]) p[k] = f[k]; });
+      exportReport(repState.tab, p);
+    }}),
+    el('button', { class: 'btn btn-sm', type: 'button', text: '🖨 พิมพ์', onclick: function () { window.print(); } })
+  ]));
+
+  return el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+    el('div', { class: 'row', style: 'gap:.6rem;align-items:flex-end' }, fields)
+  ]);
+}
+
+function reportTable(columns, rows, totals) {
+  return el('div', { class: 'table-wrap' }, [
+    el('table', { class: 'data' }, [
+      el('thead', {}, [el('tr', {}, columns.map(function (c) { return el('th', { class: c.cls || '', text: c.header }); }))]),
+      el('tbody', {}, rows.length
+        ? rows.map(function (r) {
+            return el('tr', {}, columns.map(function (c) {
+              if (c.render) return el('td', { class: c.cls || '' }, [c.render(r)]);
+              var v = c.fmt ? c.fmt(r[c.key], r) : r[c.key];
+              return el('td', { class: c.cls || '', text: (v === null || v === undefined || v === '') ? '-' : String(v) });
+            }));
+          })
+        : [el('tr', {}, [el('td', { colspan: String(columns.length), class: 'center muted', style: 'padding:2rem', text: 'ไม่มีข้อมูลตามเงื่อนไขที่เลือก' })])]),
+      totals ? el('tfoot', {}, [el('tr', {}, columns.map(function (c, i) {
+        return el('td', { class: c.cls || '', text: i === 0 ? (totals.__label || 'รวมทั้งสิ้น') : (totals[c.key] !== undefined ? money(totals[c.key]) : '') });
+      }))]) : null
+    ])
+  ]);
+}
+
+function drawOverview(box, d) {
+  box.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+    statCard('ยอดที่ต้องเก็บ', money(d.totals.total_due), 'บาท', 'is-blue'),
+    statCard('ยอดที่เก็บได้', money(d.totals.total_paid), 'บาท', 'is-green', d.totals.percent + '%'),
+    statCard('ยอดค้างชำระ', money(d.totals.outstanding), 'บาท', 'is-red'),
+    statCard('รายการจัดเก็บ', d.rows.length, 'รายการ', '')
+  ]));
+  box.appendChild(el('section', { class: 'card card-pad-0' }, [
+    reportTable([
+      { header: 'รหัส', key: 'code', cls: 'mono' },
+      { header: 'วัตถุประสงค์การจัดเก็บ', key: 'name',
+        render: function (r) { return el('button', { class: 'btn btn-ghost bold', style: 'padding:0;color:var(--brand-600)', type: 'button', text: r.name, onclick: function () { navigate('collections', { id: r.id }); } }); } },
+      { header: 'ปี/ภาค', key: 'fiscal_year', cls: 'mid', fmt: function (v, r) { return (v || '-') + (r.term !== '-' ? '/' + r.term : ''); } },
+      { header: 'สถานะ', key: 'status_label', cls: 'mid' },
+      { header: 'ผู้ต้องชำระ', key: 'members', cls: 'num' },
+      { header: 'ยอดที่ต้องเก็บ', key: 'total_due', cls: 'num', fmt: money },
+      { header: 'เก็บได้', key: 'total_paid', cls: 'num', fmt: money },
+      { header: 'คงค้าง', key: 'outstanding', cls: 'num', fmt: money },
+      { header: 'ชำระแล้ว', key: 'paid_count', cls: 'num' },
+      { header: 'รอตรวจ', key: 'pending_count', cls: 'num' },
+      { header: 'ค้าง', key: 'unpaid_count', cls: 'num' },
+      { header: '%', key: 'percent', cls: 'num', fmt: function (v) { return v + '%'; } }
+    ], d.rows, { __label: 'รวมทั้งสิ้น', total_due: d.totals.total_due, total_paid: d.totals.total_paid, outstanding: d.totals.outstanding })
+  ]));
+}
+
+function drawCollectionReport(box, d) {
+  var c = d.collection;
+  box.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+    el('h2', { style: 'font-size:1.15rem;margin:0', text: c.name }),
+    el('div', { class: 'small muted', text: c.code +
+      (c.fiscal_year ? ' • ปีการศึกษา ' + c.fiscal_year : '') +
+      (c.term ? ' • ภาคเรียนที่ ' + c.term : '') +
+      (c.due_date ? ' • กำหนดชำระ ' + thaiDate(c.due_date) : '') }),
+    el('div', { class: 'grid grid-4', style: 'margin-top:.8rem' }, [
+      statCard('ผู้ต้องชำระ', d.summary.total_members, 'คน', ''),
+      statCard('ยอดที่ต้องเก็บ', money(d.summary.total_due), 'บาท', 'is-blue'),
+      statCard('เก็บได้', money(d.summary.total_paid), 'บาท', 'is-green', d.summary.percent_paid + '%'),
+      statCard('คงค้าง', money(d.summary.total_outstanding), 'บาท', 'is-red')
+    ])
+  ]));
+  box.appendChild(el('section', { class: 'card card-pad-0' }, [
+    reportTable([
+      { header: 'ลำดับ', key: 'no', cls: 'mid mono' },
+      { header: 'รหัส', key: 'member_code', cls: 'mono' },
+      { header: 'ชื่อ-สกุล', key: 'full_name' },
+      { header: 'กลุ่ม/ชั้น', key: 'group_name', cls: 'mid' },
+      { header: 'ต้องชำระ', key: 'amount_due', cls: 'num', fmt: money },
+      { header: 'ชำระแล้ว', key: 'paid_amount', cls: 'num', fmt: money },
+      { header: 'คงเหลือ', key: 'outstanding', cls: 'num', fmt: money },
+      { header: 'สถานะ', key: 'status_label', cls: 'mid' },
+      { header: 'เลขอ้างอิง', key: 'ref_code', cls: 'mid mono' },
+      { header: 'วันที่อนุมัติ', key: 'verified_at', cls: 'mid', fmt: function (v) { return v ? thaiDate(v, { short: true }) : '-'; } }
+    ], d.rows, { __label: 'รวมทั้งสิ้น', amount_due: d.summary.total_due, paid_amount: d.summary.total_paid, outstanding: d.summary.total_outstanding })
+  ]));
+}
+
+function drawAllMembers(box, d) {
+  box.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+    statCard('สมาชิก', d.rows.length, 'คน', ''),
+    statCard('ยอดที่ต้องชำระรวม', money(d.totals.total_due), 'บาท', 'is-blue'),
+    statCard('ชำระแล้วรวม', money(d.totals.total_paid), 'บาท', 'is-green'),
+    statCard('ค้างชำระรวม', money(d.totals.outstanding), 'บาท', 'is-red')
+  ]));
+  box.appendChild(el('section', { class: 'card card-pad-0' }, [
+    reportTable([
+      { header: 'ลำดับ', key: 'no', cls: 'mid mono' },
+      { header: 'รหัส', key: 'member_code', cls: 'mono' },
+      { header: 'ชื่อ-สกุล', key: 'full_name',
+        render: function (r) { return el('button', { class: 'btn btn-ghost bold', style: 'padding:0;color:var(--brand-600)', type: 'button', text: r.full_name, onclick: function () { navigate('members', { id: r.member_id }); } }); } },
+      { header: 'กลุ่ม/ชั้น', key: 'group_name', cls: 'mid' },
+      { header: 'จำนวนรอบ', key: 'rounds', cls: 'num' },
+      { header: 'ต้องชำระรวม', key: 'total_due', cls: 'num', fmt: money },
+      { header: 'ชำระแล้วรวม', key: 'total_paid', cls: 'num', fmt: money },
+      { header: 'ค้างชำระ', key: 'outstanding', cls: 'num', fmt: money },
+      { header: 'ครบ', key: 'paid_rounds', cls: 'num' },
+      { header: 'รอตรวจ', key: 'pending_rounds', cls: 'num' },
+      { header: 'ค้าง', key: 'unpaid_rounds', cls: 'num' },
+      { header: '%', key: 'percent', cls: 'num', fmt: function (v) { return v + '%'; } }
+    ], d.rows, { __label: 'รวมทั้งสิ้น', total_due: d.totals.total_due, total_paid: d.totals.total_paid, outstanding: d.totals.outstanding })
+  ]));
+}
+
+function drawMemberReport(box, d) {
+  box.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+    el('h2', { style: 'font-size:1.15rem;margin:0', text: d.member.full_name }),
+    el('div', { class: 'small muted', text: d.member.member_code + (d.member.group_name ? ' • ' + d.member.group_name : '') }),
+    el('div', { class: 'grid grid-4', style: 'margin-top:.8rem' }, [
+      statCard('จำนวนรอบ', d.totals.total_members, 'รอบ', ''),
+      statCard('ยอดที่ต้องชำระ', money(d.totals.total_due), 'บาท', 'is-blue'),
+      statCard('ชำระแล้ว', money(d.totals.total_paid), 'บาท', 'is-green'),
+      statCard('คงค้าง', money(d.totals.total_outstanding), 'บาท', d.totals.total_outstanding > 0 ? 'is-red' : 'is-green')
+    ])
+  ]));
+  box.appendChild(el('section', { class: 'card card-pad-0', style: 'margin-bottom:1rem' }, [
+    el('div', { class: 'card-head' }, [el('h3', { style: 'font-size:1rem', text: 'สรุปรายรอบ' })]),
+    reportTable([
+      { header: 'ลำดับ', key: 'no', cls: 'mid mono' },
+      { header: 'รหัสรายการ', key: 'collection_code', cls: 'mono' },
+      { header: 'วัตถุประสงค์การจัดเก็บ', key: 'collection_name' },
+      { header: 'กำหนดชำระ', key: 'due_date', cls: 'mid', fmt: function (v) { return v ? thaiDate(v, { short: true }) : '-'; } },
+      { header: 'ต้องชำระ', key: 'amount_due', cls: 'num', fmt: money },
+      { header: 'ชำระแล้ว', key: 'paid_amount', cls: 'num', fmt: money },
+      { header: 'คงเหลือ', key: 'outstanding', cls: 'num', fmt: money },
+      { header: 'สถานะ', key: 'status_label', cls: 'mid' },
+      { header: 'เลขอ้างอิง', key: 'ref_code', cls: 'mid mono' }
+    ], d.rows, { __label: 'รวมทั้งสิ้น', amount_due: d.totals.total_due, paid_amount: d.totals.total_paid, outstanding: d.totals.total_outstanding })
+  ]));
+  box.appendChild(el('section', { class: 'card card-pad-0' }, [
+    el('div', { class: 'card-head' }, [el('h3', { style: 'font-size:1rem', text: 'ประวัติการแจ้งชำระทั้งหมด' })]),
+    reportTable([
+      { header: 'เลขอ้างอิง', key: 'ref_code', cls: 'mono' },
+      { header: 'รายการจัดเก็บ', key: 'collection_name' },
+      { header: 'จำนวนเงิน', key: 'amount', cls: 'num', fmt: money },
+      { header: 'ช่องทาง', key: 'method_label', cls: 'mid' },
+      { header: 'วันที่แจ้ง', key: 'created_at', cls: 'mid', fmt: function (v) { return thaiDate(v, { short: true }); } },
+      { header: 'วันที่อนุมัติ', key: 'verified_at', cls: 'mid', fmt: function (v) { return v ? thaiDate(v, { short: true }) : '-'; } },
+      { header: 'สถานะ', key: 'status_label', cls: 'mid' },
+      { header: 'เลขที่ใบเสร็จ', key: 'receipt_no', cls: 'mid mono' }
+    ], d.payments)
+  ]));
+}
+
+function drawTransactions(box, d) {
+  box.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+    el('div', {}, [
+      el('div', { class: 'small muted', text: 'จำนวน ' + d.count + ' รายการ' }),
+      el('div', { style: 'font-size:1.5rem;font-weight:800', text: money(d.total) + ' บาท' }),
+      el('div', { class: 'small muted', text: '(' + d.baht_text + ')' })
+    ])
+  ]));
+  box.appendChild(el('section', { class: 'card card-pad-0' }, [
+    reportTable([
+      { header: 'ลำดับ', key: 'no', cls: 'mid mono' },
+      { header: 'เลขอ้างอิง', key: 'ref_code', cls: 'mono',
+        render: function (r) { return el('button', { class: 'btn btn-ghost mono bold', style: 'padding:0;color:var(--brand-600)', type: 'button', text: r.ref_code, onclick: function () { navigate('payments', { id: r.id }); } }); } },
+      { header: 'ใบเสร็จ', key: 'receipt_no', cls: 'mono mid' },
+      { header: 'รหัส', key: 'member_code', cls: 'mono' },
+      { header: 'ชื่อ-สกุล', key: 'full_name' },
+      { header: 'กลุ่ม/ชั้น', key: 'group_name', cls: 'mid' },
+      { header: 'รายการจัดเก็บ', key: 'collection_name' },
+      { header: 'จำนวนเงิน', key: 'amount', cls: 'num', fmt: money },
+      { header: 'ช่องทาง', key: 'method_label', cls: 'mid' },
+      { header: 'วันที่อนุมัติ', key: 'verified_at', cls: 'mid', fmt: function (v) { return v ? thaiDate(v, { short: true }) : '-'; } },
+      { header: 'ผู้ตรวจสอบ', key: 'verified_by_name' },
+      { header: 'สถานะ', key: 'status_label', cls: 'mid' }
+    ], d.rows, { __label: 'รวม', amount: d.total })
+  ]));
+}
+
+function drawOutstanding(box, d) {
+  var overdueCount = d.rows.filter(function (r) { return r.overdue_days > 0; }).length;
+  box.appendChild(el('div', { class: 'grid grid-3', style: 'margin-bottom:1rem' }, [
+    statCard('รายการค้างชำระ', d.count, 'รายการ', 'is-red'),
+    statCard('ยอดค้างรวม', money(d.total), 'บาท', 'is-red'),
+    statCard('เลยกำหนด', overdueCount, 'รายการ', 'is-amber')
+  ]));
+  box.appendChild(el('section', { class: 'card card-pad-0' }, [
+    reportTable([
+      { header: 'รหัส', key: 'member_code', cls: 'mono' },
+      { header: 'ชื่อ-สกุล', key: 'full_name' },
+      { header: 'กลุ่ม/ชั้น', key: 'group_name', cls: 'mid' },
+      { header: 'รายการจัดเก็บ', key: 'collection_name' },
+      { header: 'กำหนดชำระ', key: 'due_date', cls: 'mid', fmt: function (v) { return v ? thaiDate(v, { short: true }) : '-'; } },
+      { header: 'เลยกำหนด', key: 'overdue_days', cls: 'num',
+        render: function (r) {
+          return r.overdue_days > 0
+            ? el('span', { class: 'badge badge-unpaid', text: r.overdue_days + ' วัน' })
+            : el('span', { class: 'muted', text: '-' });
+        } },
+      { header: 'ต้องชำระ', key: 'amount_due', cls: 'num', fmt: money },
+      { header: 'ชำระแล้ว', key: 'paid_amount', cls: 'num', fmt: money },
+      { header: 'คงค้าง', key: 'outstanding', cls: 'num', fmt: money },
+      { header: 'สถานะ', key: 'status_label', cls: 'mid' }
+    ], d.rows, { __label: 'รวม', outstanding: d.total })
+  ]));
+}
+
+/** ส่งออกรายงานเป็นไฟล์ Google Sheets แล้วแสดงลิงก์ดาวน์โหลด */
+function exportReport(kind, params) {
+  var m = modal({
+    title: 'กำลังสร้างไฟล์รายงาน', size: 'modal-sm',
+    body: el('div', { class: 'loading', style: 'padding:2rem' }, [
+      el('span', { class: 'spinner' }), ' กำลังสร้างไฟล์ กรุณารอสักครู่...'
+    ]),
+    closeOnBackdrop: false
+  });
+
+  var payload = { kind: kind };
+  for (var k in (params || {})) if (Object.prototype.hasOwnProperty.call(params, k)) payload[k] = params[k];
+
+  call('apiExportReport', payload).then(function (r) {
+    m.body.innerHTML = '';
+    m.body.appendChild(el('div', {}, [
+      el('div', { class: 'alert alert-success', style: 'margin-bottom:1rem' }, [
+        el('div', {}, [
+          el('strong', { text: 'สร้างไฟล์รายงานเรียบร้อย ' }),
+          el('div', { class: 'small', style: 'margin-top:.3rem', text: r.name + ' (' + r.row_count + ' แถว)' }),
+          el('div', { class: 'tiny muted', style: 'margin-top:.3rem', text: 'ไฟล์ถูกบันทึกไว้ในโฟลเดอร์ "รายงาน" ใน Google Drive ของท่าน' })
+        ])
+      ]),
+      el('div', { class: 'link-row' }, [
+        el('button', { class: 'btn btn-primary', type: 'button', text: '📗 เปิดใน Google Sheets', onclick: function () { openUrl(r.url); } }),
+        el('button', { class: 'btn btn-green', type: 'button', text: '⬇ Excel (.xlsx)', onclick: function () { openUrl(r.xlsx_url); } }),
+        el('button', { class: 'btn', type: 'button', text: '⬇ CSV', onclick: function () { openUrl(r.csv_url); } }),
+        el('button', { class: 'btn', type: 'button', text: '⬇ PDF', onclick: function () { openUrl(r.pdf_url); } })
+      ])
+    ]));
+  }).catch(function (e) {
+    m.body.innerHTML = '';
+    m.body.appendChild(el('div', { class: 'alert alert-error' }, [e.message]));
+  });
+}
+
+/* ============================== บันทึกกิจกรรม ============================== */
+var auditState = { page: 1, q: '' };
+
+route('audit', function (view) {
+  view.innerHTML = '';
+  view.appendChild(pageHead('บันทึกกิจกรรม', 'ประวัติการทำงานทั้งหมดในระบบ เพื่อการตรวจสอบย้อนหลัง'));
+  view.appendChild(el('section', { class: 'card card-pad-0' }, [
+    el('div', { class: 'filters' }, [
+      el('div', { class: 'field' }, [
+        el('label', { text: 'ค้นหา' }),
+        el('input', { type: 'search', placeholder: 'การกระทำ / ผู้ใช้ / รายละเอียด', value: auditState.q,
+          oninput: debounce(function (e) { auditState.q = e.target.value; auditState.page = 1; loadAudit(); }, 350) })
+      ])
+    ]),
+    el('div', { id: 'auditList' })
+  ]));
+  return loadAudit();
+});
+
+function loadAudit() {
+  var box = $('#auditList');
+  if (!box) return Promise.resolve();
+  box.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังโหลด...</div>';
+  return call('apiAuditLogs', { page: auditState.page, per_page: 50, q: auditState.q }).then(function (d) {
+    box.innerHTML = '';
+    if (!d.logs.length) { box.appendChild(emptyState('📜', 'ไม่พบบันทึกกิจกรรม')); return; }
+    box.appendChild(el('div', { class: 'table-wrap' }, [
+      el('table', { class: 'data cards' }, [
+        el('thead', {}, [el('tr', {}, [
+          el('th', { style: 'width:170px', text: 'เวลา' }), el('th', { text: 'ผู้ใช้' }),
+          el('th', { text: 'การกระทำ' }), el('th', { text: 'รายละเอียด' })
+        ])]),
+        el('tbody', {}, d.logs.map(function (l) {
+          return el('tr', {}, [
+            el('td', { class: 'small', 'data-label': 'เวลา' }, [
+              el('div', { text: thaiDate(l.created_at, { short: true, withTime: true }) }),
+              el('div', { class: 'tiny muted', text: relativeTime(l.created_at) })
+            ]),
+            el('td', { 'data-label': 'ผู้ใช้' }, [
+              el('div', { class: 'small bold', text: l.actor_name || '-' }),
+              el('div', { class: 'tiny muted', text: { admin: 'ผู้ดูแล', member: 'สมาชิก', system: 'ระบบ' }[l.actor_type] || l.actor_type })
+            ]),
+            el('td', { class: 'small', 'data-label': 'การกระทำ', text: l.action }),
+            el('td', { class: 'tiny muted', 'data-label': 'รายละเอียด', text: l.detail || '-' })
+          ]);
+        }))
+      ])
+    ]));
+    var pg = pager(d, function (p) { auditState.page = p; loadAudit(); });
+    if (pg) box.appendChild(pg);
+  });
+}
+
+/* ================================ ตั้งค่าระบบ ================================ */
+route('settings', function (view) {
+  return call('apiSettings', {}).then(function (d) {
+    var s = d.settings;
+    view.innerHTML = '';
+    view.appendChild(pageHead('ตั้งค่าระบบ', 'ข้อมูลโรงเรียน บัญชีรับโอน และการทำงานของระบบ'));
+
+    /* ---- ข้อมูลโรงเรียน ---- */
+    var schoolForm = el('form', { id: 'schForm' }, [
+      el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { class: 'req', for: 'stName', text: 'ชื่อโรงเรียน' }),
+          el('input', { type: 'text', id: 'stName', required: true, maxlength: '200', value: s.school_name })
+        ]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'stShort', text: 'ชื่อย่อ' }),
+          el('input', { type: 'text', id: 'stShort', maxlength: '80', value: s.school_short })
+        ])
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'stTitle', text: 'ชื่อระบบ (แสดงบนหน้าเว็บ)' }),
+        el('input', { type: 'text', id: 'stTitle', maxlength: '200', value: s.system_title })
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'stAddr', text: 'ที่อยู่ (ใช้บนใบเสร็จ)' }),
+        el('input', { type: 'text', id: 'stAddr', maxlength: '300', value: s.school_address })
+      ]),
+      el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'stPhone', text: 'เบอร์โทรศัพท์' }),
+          el('input', { type: 'text', id: 'stPhone', maxlength: '60', value: s.school_phone })
+        ]),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { for: 'stReceipt', text: 'คำนำหน้าเลขที่ใบเสร็จ' }),
+          el('input', { type: 'text', id: 'stReceipt', maxlength: '10', value: s.receipt_prefix }),
+          el('div', { class: 'hint', text: 'เลขรันปัจจุบัน: ' + s.receipt_running })
+        ])
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'stNote', text: 'ข้อความติดต่อท้ายหน้าเว็บ' }),
+        el('input', { type: 'text', id: 'stNote', maxlength: '300', value: s.contact_note })
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { text: 'ตราโรงเรียน (โลโก้)' }),
+        el('div', { class: 'row', style: 'gap:.6rem;align-items:center' }, [
+          s.school_logo ? el('img', { src: s.school_logo, style: 'width:56px;height:56px;object-fit:contain;border:1px solid var(--line);border-radius:10px;background:#fff', alt: '' }) : null,
+          el('input', { type: 'file', id: 'stLogo', accept: 'image/*', style: 'flex:1', onchange: uploadLogo }),
+          s.school_logo ? el('button', { class: 'btn btn-sm btn-red', type: 'button', text: 'ลบโลโก้', onclick: removeLogo }) : null
+        ]),
+        el('div', { class: 'hint', text: 'แนะนำรูป PNG ขนาด 256x256 พิกเซล ไฟล์ไม่เกิน 32 KB' })
+      ]),
+      el('button', { class: 'btn btn-primary', type: 'submit', text: 'บันทึกข้อมูลโรงเรียน' })
+    ]);
+
+    /* ---- การทำงานของระบบ ---- */
+    function toggle(id, label, hint, checked) {
+      return el('label', { class: 'check', style: 'margin-bottom:.6rem' }, [
+        el('input', { type: 'checkbox', id: id, checked: checked }),
+        el('span', {}, [el('span', { class: 'bold', text: label }), hint ? el('div', { class: 'tiny muted', text: hint }) : null])
+      ]);
+    }
+
+    var optForm = el('form', { id: 'optForm' }, [
+      toggle('opPin', 'ต้องใช้รหัส PIN ยืนยันตัวตนก่อนแจ้งชำระ', 'ป้องกันไม่ให้ผู้อื่นแจ้งชำระแทนสมาชิก (แนะนำให้เปิด)', s.require_member_pin === '1'),
+      toggle('opShowPin', 'แสดงรหัส PIN ของสมาชิกให้ผู้ดูแลเห็น', 'เพื่อให้ผู้ดูแลแจ้งรหัสแก่สมาชิกได้ หากปิดจะต้องรีเซ็ตรหัสใหม่เท่านั้น', s.show_pin_to_admin === '1'),
+      toggle('opPublicList', 'แสดงรายชื่อผู้ต้องชำระบนหน้าสาธารณะ', 'หากปิด สมาชิกต้องเข้าผ่านเมนู "ประวัติของฉัน" ด้วยรหัสของตนเอง', s.allow_public_member_list === '1'),
+      toggle('opMask', 'ปิดบังนามสกุลบนหน้าสาธารณะ', 'แสดงเป็น สมชาย ใ**ี เพื่อความเป็นส่วนตัว', s.mask_member_name === '1'),
+      toggle('opDup', 'ตรวจจับสลิปซ้ำอัตโนมัติ', 'ปฏิเสธการแจ้งชำระที่ใช้ไฟล์สลิปเดิมซ้ำ (แนะนำให้เปิด)', s.detect_duplicate_slip === '1'),
+      toggle('opAuto', 'อนุมัติอัตโนมัติเมื่อมีการแจ้งชำระ', '⚠ ไม่แนะนำ — ระบบจะบันทึกเป็นชำระแล้วทันทีโดยไม่ต้องตรวจสอบสลิป', s.auto_approve === '1'),
+      el('div', { class: 'field' }, [
+        el('label', { for: 'opSize', text: 'ขนาดไฟล์สลิปสูงสุด (MB)' }),
+        el('input', { type: 'number', id: 'opSize', min: '1', max: '5', value: s.max_upload_mb }),
+        el('div', { class: 'hint', text: 'สูงสุด 5 MB เพื่อให้อัปโหลดผ่าน Google Apps Script ได้รวดเร็ว' })
+      ]),
+      el('button', { class: 'btn btn-primary', type: 'submit', text: 'บันทึกการตั้งค่า' })
+    ]);
+
+    view.appendChild(el('div', { class: 'grid grid-2' }, [
+      el('section', { class: 'card' }, [el('h2', { style: 'font-size:1.05rem', text: '🏫 ข้อมูลโรงเรียน' }), schoolForm]),
+      el('section', { class: 'card' }, [el('h2', { style: 'font-size:1.05rem', text: '⚙️ การทำงานของระบบ' }), optForm])
+    ]));
+
+    /* ---- บัญชีรับโอน ---- */
+    var bankCard = el('section', { class: 'card card-pad-0', style: 'margin-top:1rem' }, [
+      el('div', { class: 'card-head' }, [
+        el('h2', { style: 'font-size:1.05rem', text: '🏦 บัญชีรับโอนและพร้อมเพย์' }),
+        canWrite() ? el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '+ เพิ่มบัญชี', onclick: function () { openBankForm(); } }) : null
+      ])
+    ]);
+    if (!d.banks.length) {
+      bankCard.appendChild(emptyState('🏦', 'ยังไม่มีบัญชีรับโอน',
+        'เพิ่มบัญชีธนาคารเพื่อให้สมาชิกเห็นช่องทางการโอน และระบบจะสร้าง QR พร้อมเพย์ระบุยอดให้อัตโนมัติ',
+        canWrite() ? el('button', { class: 'btn btn-primary', type: 'button', text: '+ เพิ่มบัญชี', onclick: function () { openBankForm(); } }) : null));
+    } else {
+      bankCard.appendChild(el('div', { class: 'table-wrap' }, [
+        el('table', { class: 'data cards' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: 'ธนาคาร' }), el('th', { text: 'เลขที่บัญชี' }), el('th', { text: 'ชื่อบัญชี' }),
+            el('th', { class: 'mid', text: 'พร้อมเพย์' }), el('th', { class: 'mid', text: 'สถานะ' }),
+            el('th', { class: 'mid', style: 'width:130px' })
+          ])]),
+          el('tbody', {}, d.banks.map(function (b) {
+            return el('tr', {}, [
+              el('td', { class: 'bold', 'data-label': 'ธนาคาร' }, [
+                b.bank_name, b.is_default ? el('span', { class: 'chip', style: 'margin-inline-start:.35rem', text: 'ค่าเริ่มต้น' }) : null
+              ]),
+              el('td', { class: 'mono', 'data-label': 'เลขที่บัญชี', text: b.account_number }),
+              el('td', { class: 'small', 'data-label': 'ชื่อบัญชี' }, [
+                b.account_name, b.branch ? el('div', { class: 'tiny muted', text: 'สาขา ' + b.branch }) : null
+              ]),
+              el('td', { class: 'mid mono small', 'data-label': 'พร้อมเพย์', text: b.promptpay_id || '-' }),
+              el('td', { class: 'mid', 'data-label': 'สถานะ' }, [
+                el('span', { class: 'badge ' + (b.is_active ? 'badge-open' : 'badge-closed'), text: b.is_active ? 'ใช้งาน' : 'ปิด' })
+              ]),
+              el('td', { class: 'mid cell-full', 'data-label': '' }, [
+                el('div', { class: 'row', style: 'gap:.25rem;justify-content:center' }, [
+                  b.promptpay_id ? el('button', { class: 'btn btn-sm', type: 'button', text: '📱 QR', onclick: function () { showBankQr(b); } }) : null,
+                  canWrite() ? el('button', { class: 'btn btn-sm', type: 'button', text: '✎', onclick: function () { openBankForm(b); } }) : null,
+                  canWrite() ? el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑', onclick: function () { deleteBank(b); } }) : null
+                ])
+              ])
+            ]);
+          }))
+        ])
+      ]));
+    }
+    view.appendChild(bankCard);
+
+    /* ---- ข้อมูลระบบ ---- */
+    function miniStat(label, value) {
+      return el('div', { style: 'padding:.6rem;background:var(--surface-2);border-radius:10px;text-align:center' }, [
+        el('div', { class: 'tiny muted', text: label }), el('div', { class: 'bold', text: value })
+      ]);
+    }
+    view.appendChild(el('section', { class: 'card', style: 'margin-top:1rem' }, [
+      el('h2', { style: 'font-size:1.05rem', text: '💾 ข้อมูลระบบ' }),
+      el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+        miniStat('สมาชิก', d.storage.counts.members + ' คน'),
+        miniStat('รายการจัดเก็บ', String(d.storage.counts.collections)),
+        miniStat('การชำระเงิน', d.storage.counts.payments + ' รายการ'),
+        miniStat('บันทึกกิจกรรม', d.storage.counts.audit_logs + ' รายการ')
+      ]),
+      el('div', { class: 'alert alert-info', style: 'margin-bottom:1rem' }, [
+        el('div', {}, [
+          el('strong', { text: 'ข้อมูลทั้งหมดเก็บอยู่ใน Google Sheets ของท่าน ' }),
+          el('div', { class: 'small', style: 'margin-top:.3rem' }, [
+            'Google Drive สำรองข้อมูลและเก็บประวัติเวอร์ชันให้อัตโนมัติ ท่านสามารถเปิดไฟล์เพื่อดูหรือแก้ไขข้อมูลดิบได้โดยตรง'
+          ])
+        ])
+      ]),
+      el('div', { class: 'link-row' }, [
+        el('button', { class: 'btn', type: 'button', text: '📗 เปิดไฟล์ Google Sheets', onclick: function () { openUrl(d.spreadsheet_url); } }),
+        d.web_app_url ? el('button', { class: 'btn', type: 'button', text: '🔗 เปิดหน้าสำหรับผู้ใช้', onclick: function () { openUrl(d.web_app_url); } }) : null,
+        d.web_app_url ? el('button', { class: 'btn', type: 'button', text: '📋 คัดลอกลิงก์สำหรับผู้ปกครอง', onclick: function () {
+          copyText(d.web_app_url).then(function (ok) { toast(ok ? 'คัดลอกลิงก์แล้ว' : 'คัดลอกไม่สำเร็จ', ok ? 'success' : 'warn'); });
+        }}) : null,
+        isSuper() ? el('button', { class: 'btn', type: 'button', text: '🧹 ลบบันทึกกิจกรรมเก่ากว่า 1 ปี', onclick: pruneLogs }) : null
+      ]),
+      el('div', { class: 'tiny muted', style: 'margin-top:.75rem', text: 'เวอร์ชันระบบ ' + d.app_version })
+    ]));
+
+    schoolForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = e.target.querySelector('button[type=submit]');
+      busy(btn, true, 'กำลังบันทึก...');
+      call('apiSaveSettings', {
+        school_name: $('#stName').value, school_short: $('#stShort').value,
+        system_title: $('#stTitle').value, school_address: $('#stAddr').value,
+        school_phone: $('#stPhone').value, receipt_prefix: $('#stReceipt').value,
+        contact_note: $('#stNote').value
+      }).then(function (r) {
+        CONFIG.school_name = r.settings.school_name;
+        CONFIG.system_title = r.settings.system_title;
+        toast('บันทึกข้อมูลโรงเรียนเรียบร้อย', 'success');
+        renderShell();
+        navigate('settings');
+      }).catch(function (ex) { toast(ex.message, 'error'); busy(btn, false); });
+    });
+
+    optForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = e.target.querySelector('button[type=submit]');
+      busy(btn, true, 'กำลังบันทึก...');
+      call('apiSaveSettings', {
+        require_member_pin: $('#opPin').checked, show_pin_to_admin: $('#opShowPin').checked,
+        allow_public_member_list: $('#opPublicList').checked, mask_member_name: $('#opMask').checked,
+        detect_duplicate_slip: $('#opDup').checked, auto_approve: $('#opAuto').checked,
+        max_upload_mb: $('#opSize').value
+      }).then(function () { toast('บันทึกการตั้งค่าเรียบร้อย', 'success'); reload(); })
+        .catch(function (ex) { toast(ex.message, 'error'); busy(btn, false); });
+    });
+  });
+});
+
+function uploadLogo(e) {
+  if (needWrite()) return;
+  var f = e.target.files[0];
+  if (!f) return;
+  readFileBase64(f).then(function (b64) {
+    return call('apiSaveLogo', { base64: b64, name: f.name });
+  }).then(function (r) {
+    CONFIG.school_logo = r.logo;
+    toast('อัปโหลดโลโก้เรียบร้อย', 'success');
+    renderShell();
+    navigate('settings');
+  }).catch(function (ex) { toast(ex.message, 'error', 7000); });
+}
+
+function removeLogo() {
+  if (needWrite()) return;
+  confirmDialog({ title: 'ลบโลโก้', message: 'ต้องการลบโลโก้โรงเรียนใช่หรือไม่?', confirmText: 'ลบ', danger: true })
+    .then(function (yes) {
+      if (!yes) return;
+      call('apiSaveLogo', { remove: true }).then(function () {
+        CONFIG.school_logo = '';
+        toast('ลบโลโก้แล้ว', 'success');
+        renderShell();
+        navigate('settings');
+      }).catch(function (e) { toast(e.message, 'error'); });
+    });
+}
+
+function pruneLogs() {
+  confirmDialog({ title: 'ลบบันทึกกิจกรรมเก่า', message: 'ต้องการลบบันทึกกิจกรรมที่เก่ากว่า 1 ปีใช่หรือไม่?', confirmText: 'ลบ', danger: true })
+    .then(function (yes) {
+      if (!yes) return;
+      call('apiPruneLogs', { days: 365 })
+        .then(function (r) { toast('ลบบันทึกเก่า ' + r.deleted + ' รายการแล้ว', 'success'); })
+        .catch(function (e) { toast(e.message, 'error'); });
+    });
+}
+
+function openBankForm(b) {
+  if (needWrite()) return;
+  var BANKS = ['ธนาคารกรุงไทย', 'ธนาคารกรุงเทพ', 'ธนาคารกสิกรไทย', 'ธนาคารไทยพาณิชย์', 'ธนาคารกรุงศรีอยุธยา',
+    'ธนาคารทหารไทยธนชาต', 'ธนาคารออมสิน', 'ธนาคารเพื่อการเกษตรและสหกรณ์การเกษตร', 'ธนาคารอาคารสงเคราะห์'];
+
+  var form = el('form', { id: 'bForm' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'bName', text: 'ธนาคาร' }),
+      el('input', { type: 'text', id: 'bName', required: true, list: 'bankList', maxlength: '120', value: b ? b.bank_name : '' }),
+      el('datalist', { id: 'bankList' }, BANKS.map(function (x) { return el('option', { value: x }); }))
+    ]),
+    el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { class: 'req', for: 'bNumber', text: 'เลขที่บัญชี' }),
+        el('input', { type: 'text', id: 'bNumber', required: true, maxlength: '40', value: b ? b.account_number : '' })
+      ]),
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { for: 'bBranch', text: 'สาขา' }),
+        el('input', { type: 'text', id: 'bBranch', maxlength: '120', value: b ? (b.branch || '') : '' })
+      ])
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'bAccName', text: 'ชื่อบัญชี' }),
+      el('input', { type: 'text', id: 'bAccName', required: true, maxlength: '160', value: b ? b.account_name : '' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'bPromptpay', text: 'เลขพร้อมเพย์ (สำหรับสร้าง QR ระบุยอดอัตโนมัติ)' }),
+      el('input', { type: 'text', id: 'bPromptpay', maxlength: '40', inputmode: 'numeric', value: b ? (b.promptpay_id || '') : '',
+        placeholder: 'เบอร์โทร 10 หลัก หรือเลขประจำตัวผู้เสียภาษี 13 หลัก' }),
+      el('div', { class: 'hint', text: 'เว้นว่างได้หากไม่ต้องการใช้ QR พร้อมเพย์' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'bNote', text: 'หมายเหตุ' }),
+      el('input', { type: 'text', id: 'bNote', maxlength: '255', value: b ? (b.note || '') : '' })
+    ]),
+    el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'bDefault', checked: b ? !!b.is_default : true }),
+      el('span', { text: 'ตั้งเป็นบัญชีหลัก (แสดงเป็นตัวเลือกแรก)' })
+    ]),
+    b ? el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'bActive', checked: !!b.is_active }), el('span', { text: 'เปิดใช้งาน' })
+    ]) : null
+  ]);
+
+  var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'bForm', text: b ? 'บันทึก' : 'เพิ่มบัญชี' });
+  var m = modal({ title: b ? 'แก้ไขบัญชีรับโอน' : 'เพิ่มบัญชีรับโอน', body: form,
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true);
+    var payload = {
+      id: b ? b.id : null,
+      bank_name: $('#bName', form).value, account_number: $('#bNumber', form).value,
+      branch: $('#bBranch', form).value, account_name: $('#bAccName', form).value,
+      promptpay_id: $('#bPromptpay', form).value, note: $('#bNote', form).value,
+      is_default: $('#bDefault', form).checked
+    };
+    if (b) payload.is_active = $('#bActive', form).checked;
+    call('apiSaveBank', payload)
+      .then(function () { m.close(); toast('บันทึกเรียบร้อย', 'success'); reload(); })
+      .catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+  });
+}
+
+function deleteBank(b) {
+  if (needWrite()) return;
+  confirmDialog({ title: 'ลบบัญชีรับโอน', danger: true, confirmText: 'ลบ',
+    message: 'ต้องการลบบัญชี ' + b.bank_name + ' ' + b.account_number + ' ใช่หรือไม่?' })
+    .then(function (yes) {
+      if (!yes) return;
+      call('apiDeleteBank', { id: b.id })
+        .then(function () { toast('ลบบัญชีแล้ว', 'success'); reload(); })
+        .catch(function (e) { toast(e.message, 'error'); });
+    });
+}
+
+function showBankQr(b) {
+  var amountInput = el('input', { type: 'number', step: '0.01', min: '0', value: '0', placeholder: 'ระบุยอด (0 = ไม่ระบุ)' });
+  var qrBox = el('div', {});
+  function load() {
+    qrBox.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+    call('apiBankQr', { id: b.id, amount: amountInput.value || 0 })
+      .then(function (r) { renderQr(qrBox, r.payload, b.account_name + ' • ' + b.promptpay_id); })
+      .catch(function (e) { qrBox.innerHTML = ''; qrBox.appendChild(el('div', { class: 'alert alert-error' }, [e.message])); });
+  }
+  amountInput.addEventListener('change', load);
+
+  var m = modal({
+    title: 'QR พร้อมเพย์ — ' + b.bank_name, size: 'modal-sm',
+    body: el('div', {}, [el('div', { class: 'field' }, [el('label', { text: 'จำนวนเงิน (บาท)' }), amountInput]), qrBox]),
+    footer: [el('button', { class: 'btn btn-primary', type: 'button', text: 'ปิด', onclick: function () { m.close(); } })]
+  });
+  load();
+}
+
+/* ============================== ผู้ดูแลระบบ ============================== */
+route('users', function (view) {
+  return call('apiUsers', {}).then(function (d) {
+    view.innerHTML = '';
+    view.appendChild(pageHead('ผู้ดูแลระบบ', 'จัดการบัญชีผู้ดูแลและสิทธิ์การใช้งาน', [
+      el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '+ เพิ่มผู้ดูแล', onclick: function () { openUserForm(null, d.roles); } })
+    ]));
+
+    view.appendChild(el('div', { class: 'alert alert-info', style: 'margin-bottom:1rem' }, [
+      el('div', {}, [
+        el('strong', { text: 'ระดับสิทธิ์: ' }),
+        el('div', { class: 'small', style: 'margin-top:.25rem' }, [
+          el('div', { text: '• ผู้ดูแลระบบสูงสุด — ใช้งานได้ทุกอย่าง รวมถึงจัดการผู้ดูแล' }),
+          el('div', { text: '• ผู้ดูแลระบบ — จัดการสมาชิก รายการจัดเก็บ และตรวจสอบการชำระเงินได้' }),
+          el('div', { text: '• ผู้ดูรายงาน — ดูข้อมูลและออกรายงานได้เท่านั้น แก้ไขข้อมูลไม่ได้' })
+        ])
+      ])
+    ]));
+
+    view.appendChild(el('section', { class: 'card card-pad-0' }, [
+      el('div', { class: 'table-wrap' }, [
+        el('table', { class: 'data cards' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: 'ชื่อผู้ใช้' }), el('th', { text: 'ชื่อ-สกุล' }), el('th', { text: 'อีเมล' }),
+            el('th', { class: 'mid', text: 'สิทธิ์' }), el('th', { class: 'mid', text: 'เข้าใช้ล่าสุด' }),
+            el('th', { class: 'mid', text: 'สถานะ' }), el('th', { class: 'mid', style: 'width:150px' })
+          ])]),
+          el('tbody', {}, d.users.map(function (u) {
+            return el('tr', {}, [
+              el('td', { class: 'mono bold', 'data-label': 'ชื่อผู้ใช้' }, [
+                u.username, u.id === d.me ? el('span', { class: 'chip', style: 'margin-inline-start:.35rem', text: 'คุณ' }) : null
+              ]),
+              el('td', { 'data-label': 'ชื่อ-สกุล', text: u.full_name }),
+              el('td', { class: 'small', 'data-label': 'อีเมล', text: u.email }),
+              el('td', { class: 'mid', 'data-label': 'สิทธิ์' }, [
+                el('span', { class: 'badge ' + (u.role === 'superadmin' ? 'badge-partial' : u.role === 'admin' ? 'badge-open' : 'badge-draft'), text: u.role_label })
+              ]),
+              el('td', { class: 'mid small muted', 'data-label': 'เข้าใช้ล่าสุด', text: u.last_login_at ? relativeTime(u.last_login_at) : 'ยังไม่เคย' }),
+              el('td', { class: 'mid', 'data-label': 'สถานะ' }, [
+                el('span', { class: 'badge ' + (u.is_active ? 'badge-open' : 'badge-closed'), text: u.is_active ? 'ใช้งาน' : 'ระงับ' }),
+                u.locked ? el('div', { class: 'tiny', style: 'color:var(--red-600)', text: '🔒 ถูกล็อก' }) : null
+              ]),
+              el('td', { class: 'mid cell-full', 'data-label': '' }, [
+                el('div', { class: 'row', style: 'gap:.25rem;justify-content:center' }, [
+                  el('button', { class: 'btn btn-sm', type: 'button', text: '✎', title: 'แก้ไข', onclick: function () { openUserForm(u, d.roles); } }),
+                  el('button', { class: 'btn btn-sm', type: 'button', text: '🔑', title: 'ตั้งรหัสผ่านใหม่', onclick: function () { resetUserPassword(u); } }),
+                  u.locked ? el('button', { class: 'btn btn-sm btn-amber', type: 'button', text: '🔓', title: 'ปลดล็อก', onclick: function () { unlockUser(u); } }) : null,
+                  u.id !== d.me ? el('button', { class: 'btn btn-sm btn-red', type: 'button', text: '🗑', title: 'ลบ', onclick: function () { deleteUser(u); } }) : null
+                ])
+              ])
+            ]);
+          }))
+        ])
+      ])
+    ]));
+  });
+}, { superOnly: true });
+
+function openUserForm(u, roles) {
+  var form = el('form', { id: 'uForm', autocomplete: 'off' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'uUser', text: 'ชื่อผู้ใช้ (ภาษาอังกฤษ)' }),
+      el('input', { type: 'text', id: 'uUser', required: true, maxlength: '80', value: u ? u.username : '', readonly: !!u, autocapitalize: 'none' }),
+      el('div', { class: 'hint', text: u ? 'ไม่สามารถเปลี่ยนชื่อผู้ใช้ได้' : 'ตัวอักษรภาษาอังกฤษพิมพ์เล็ก ตัวเลข จุด ขีดกลาง หรือขีดล่าง ความยาว 3-80 ตัว' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'uName', text: 'ชื่อ-สกุล' }),
+      el('input', { type: 'text', id: 'uName', required: true, maxlength: '160', value: u ? u.full_name : '' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'uEmail', text: 'อีเมล' }),
+      el('input', { type: 'email', id: 'uEmail', required: true, maxlength: '160', value: u ? u.email : '', autocapitalize: 'none' }),
+      el('div', { class: 'hint', text: 'ใช้สำหรับรับลิงก์ตั้งรหัสผ่านใหม่กรณีลืมรหัสผ่าน — ต้องเป็นอีเมลที่เข้าถึงได้จริง' })
+    ]),
+    el('div', { class: 'grid grid-2', style: 'gap:.7rem' }, [
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { for: 'uRole', text: 'ระดับสิทธิ์' }),
+        el('select', { id: 'uRole' }, roles.map(function (r) {
+          return el('option', { value: r.value, text: r.label, selected: u && u.role === r.value });
+        }))
+      ]),
+      el('div', { class: 'field', style: 'margin:0' }, [
+        el('label', { for: 'uPhone', text: 'เบอร์โทร' }),
+        el('input', { type: 'tel', id: 'uPhone', maxlength: '40', value: u ? (u.phone || '') : '' })
+      ])
+    ]),
+    !u ? el('div', { class: 'field' }, [
+      el('label', { for: 'uPass', text: 'รหัสผ่าน' }),
+      el('input', { type: 'text', id: 'uPass', minlength: '8', maxlength: '72', placeholder: 'เว้นว่างเพื่อให้ระบบสร้างให้อัตโนมัติ' }),
+      el('div', { class: 'hint', text: 'อย่างน้อย 8 ตัวอักษร ประกอบด้วยตัวอักษรและตัวเลข' })
+    ]) : null,
+    u ? el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'uActive', checked: !!u.is_active }), el('span', { text: 'เปิดใช้งานบัญชี' })
+    ]) : el('label', { class: 'check' }, [
+      el('input', { type: 'checkbox', id: 'uMustChange', checked: true }), el('span', { text: 'บังคับให้เปลี่ยนรหัสผ่านเมื่อเข้าใช้ครั้งแรก' })
+    ])
+  ]);
+
+  var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'uForm', text: u ? 'บันทึก' : 'เพิ่มผู้ดูแล' });
+  var m = modal({ title: u ? 'แก้ไขผู้ดูแล — ' + u.username : 'เพิ่มผู้ดูแลระบบ', body: form,
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }), btn] });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true, 'กำลังบันทึก...');
+    var payload = {
+      id: u ? u.id : null,
+      username: $('#uUser', form).value.toLowerCase(), full_name: $('#uName', form).value,
+      email: $('#uEmail', form).value, role: $('#uRole', form).value, phone: $('#uPhone', form).value
+    };
+    if (u) payload.is_active = $('#uActive', form).checked;
+    else { payload.password = $('#uPass', form).value; payload.must_change_pw = $('#uMustChange', form).checked; }
+
+    call('apiSaveUser', payload).then(function (r) {
+      m.close();
+      if (r.password) showGeneratedPassword(r.username, r.password);
+      else toast('บันทึกเรียบร้อย', 'success');
+      reload();
+    }).catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+  });
+}
+
+function showGeneratedPassword(username, password) {
+  var body = el('div', {}, [
+    el('div', { class: 'alert alert-warn', style: 'margin-bottom:1rem' },
+      ['กรุณาคัดลอกรหัสผ่านนี้แจ้งแก่ผู้ใช้ทันที เนื่องจากจะไม่แสดงอีก']),
+    el('div', { class: 'credential-box center' }, [
+      el('div', { class: 'small', text: 'ชื่อผู้ใช้: ' + username }),
+      el('div', { class: 'code', text: password })
+    ])
+  ]);
+  var m = modal({ title: 'รหัสผ่านที่ระบบสร้างให้', body: body, size: 'modal-sm',
+    footer: [
+      el('button', { class: 'btn', type: 'button', text: '📋 คัดลอก', onclick: function () {
+        copyText(password).then(function (ok) { toast(ok ? 'คัดลอกแล้ว' : 'คัดลอกไม่สำเร็จ', ok ? 'success' : 'warn'); });
+      }}),
+      el('button', { class: 'btn btn-primary', type: 'button', text: 'เสร็จสิ้น', onclick: function () { m.close(); } })
+    ] });
+}
+
+function resetUserPassword(u) {
+  var input = el('input', { type: 'text', minlength: '8', placeholder: 'เว้นว่างเพื่อให้ระบบสร้างให้' });
+  var m = modal({
+    title: 'ตั้งรหัสผ่านใหม่', size: 'modal-sm',
+    body: el('div', {}, [
+      el('p', { class: 'small', text: 'ตั้งรหัสผ่านใหม่ให้ ' + u.full_name + ' (' + u.username + ') — ผู้ใช้จะต้องเปลี่ยนรหัสผ่านเมื่อเข้าใช้ครั้งถัดไป' }),
+      el('div', { class: 'field' }, [el('label', { text: 'รหัสผ่านใหม่' }), input])
+    ]),
+    footer: [
+      el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }),
+      el('button', { class: 'btn btn-primary', type: 'button', text: 'ตั้งรหัสผ่านใหม่', onclick: function (e) {
+        busy(e.target, true);
+        call('apiResetUserPassword', { id: u.id, password: input.value })
+          .then(function (r) {
+            m.close();
+            if (r.password) showGeneratedPassword(r.username, r.password);
+            else toast('ตั้งรหัสผ่านใหม่เรียบร้อย', 'success');
+          })
+          .catch(function (ex) { toast(ex.message, 'error'); busy(e.target, false); });
+      }})
+    ]
+  });
+}
+
+function unlockUser(u) {
+  call('apiUnlockUser', { id: u.id })
+    .then(function () { toast('ปลดล็อกบัญชีแล้ว', 'success'); reload(); })
+    .catch(function (e) { toast(e.message, 'error'); });
+}
+
+function deleteUser(u) {
+  confirmDialog({ title: 'ลบผู้ดูแลระบบ', danger: true, confirmText: 'ลบ',
+    message: 'ต้องการลบบัญชี ' + u.username + ' (' + u.full_name + ') ใช่หรือไม่?' })
+    .then(function (yes) {
+      if (!yes) return;
+      call('apiDeleteUser', { id: u.id })
+        .then(function () { toast('ลบบัญชีแล้ว', 'success'); reload(); })
+        .catch(function (e) { toast(e.message, 'error'); });
+    });
+}
+
+/* ============================== บัญชีของฉัน ============================== */
+route('profile', function (view) {
+  return call('me', {}).then(function (d) {
+    var u = d.admin;
+    view.innerHTML = '';
+    view.appendChild(pageHead('บัญชีของฉัน', 'ข้อมูลผู้ใช้และการเปลี่ยนรหัสผ่าน'));
+
+    if (u.must_change_pw) {
+      view.appendChild(el('div', { class: 'alert alert-warn', style: 'margin-bottom:1rem' }, [
+        el('div', {}, [el('strong', { text: 'กรุณาเปลี่ยนรหัสผ่าน ' }), 'บัญชีนี้ยังใช้รหัสผ่านที่ผู้ดูแลตั้งให้ กรุณาตั้งรหัสผ่านใหม่เพื่อความปลอดภัย'])
+      ]));
+    }
+
+    var pwForm = el('form', { id: 'pwForm', autocomplete: 'off' }, [
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'cpCur', text: 'รหัสผ่านปัจจุบัน' }),
+        el('input', { type: 'password', id: 'cpCur', required: true, autocomplete: 'current-password' })
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'cpNew', text: 'รหัสผ่านใหม่' }),
+        el('input', { type: 'password', id: 'cpNew', required: true, minlength: '8', autocomplete: 'new-password' }),
+        el('div', { class: 'hint', text: 'อย่างน้อย 8 ตัวอักษร ประกอบด้วยตัวอักษรและตัวเลข' })
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'cpConf', text: 'ยืนยันรหัสผ่านใหม่' }),
+        el('input', { type: 'password', id: 'cpConf', required: true, minlength: '8', autocomplete: 'new-password' })
+      ]),
+      el('button', { class: 'btn btn-primary', type: 'submit', text: 'เปลี่ยนรหัสผ่าน' })
+    ]);
+
+    view.appendChild(el('div', { class: 'grid grid-2' }, [
+      el('section', { class: 'card' }, [
+        el('h2', { style: 'font-size:1.05rem', text: '👤 ข้อมูลผู้ใช้' }),
+        el('dl', { class: 'kv' }, [
+          el('dt', { text: 'ชื่อผู้ใช้' }), el('dd', { class: 'mono', text: u.username }),
+          el('dt', { text: 'ชื่อ-สกุล' }), el('dd', { text: u.full_name }),
+          el('dt', { text: 'อีเมล' }), el('dd', { text: u.email }),
+          el('dt', { text: 'ระดับสิทธิ์' }), el('dd', {}, [el('span', { class: 'badge badge-open', text: u.role_label })]),
+          el('dt', { text: 'เบอร์โทร' }), el('dd', { text: u.phone || '-' }),
+          el('dt', { text: 'เข้าใช้ล่าสุด' }), el('dd', { text: u.last_login_at ? thaiDate(u.last_login_at, { withTime: true }) : '-' })
+        ]),
+        el('div', { class: 'hint', style: 'margin-top:.8rem', text: 'หากต้องการเปลี่ยนอีเมล กรุณาติดต่อผู้ดูแลระบบสูงสุด' })
+      ]),
+      el('section', { class: 'card' }, [el('h2', { style: 'font-size:1.05rem', text: '🔒 เปลี่ยนรหัสผ่าน' }), pwForm])
+    ]));
+
+    pwForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = e.target.querySelector('button[type=submit]');
+      busy(btn, true, 'กำลังบันทึก...');
+      call('changePassword', {
+        current_password: $('#cpCur').value, new_password: $('#cpNew').value, confirm_password: $('#cpConf').value
+      }).then(function () {
+        toast('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว', 'success');
+        ADMIN.user.must_change_pw = false;
+        reload();
+      }).catch(function (ex) { toast(ex.message, 'error', 6000); busy(btn, false); });
+    });
+  });
+});

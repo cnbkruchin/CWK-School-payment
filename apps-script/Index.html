@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<?!= include('Styles') ?>
+</head>
+<body>
+
+<div class="gas-loading" id="gasLoading">
+  <span class="spinner"></span>
+  <div class="muted small">กำลังโหลดระบบ...</div>
+</div>
+
+<header class="site-header no-print">
+  <div class="wrap row-between">
+    <a class="brand" href="#" id="brandLink" style="text-decoration:none">
+      <span class="brand-logo" id="brandLogo">🏫</span>
+      <span class="brand-text">
+        <span class="brand-title" id="schoolName">โรงเรียนทุนวิทยาคม</span>
+        <span class="brand-sub" id="systemTitle">ระบบแจ้งชำระเงินตามวัตถุประสงค์การจัดเก็บ</span>
+      </span>
+    </a>
+    <nav class="nav" id="mainNav"></nav>
+  </div>
+</header>
+
+<main class="wrap" id="main" style="padding-block:1.25rem 2rem"></main>
+
+<footer class="site-footer no-print">
+  <div class="wrap">
+    <p id="contactNote" style="margin:0"></p>
+    <p style="margin:.35rem 0 0" class="tiny">
+      <button class="btn btn-ghost btn-sm" type="button" id="themeBtn">สลับโหมดสว่าง/มืด</button>
+    </p>
+  </div>
+</footer>
+
+<?!= include('QrCode') ?>
+<?!= include('Common') ?>
+
+<script>
+'use strict';
+var BOOT = <?= BOOT ?>;
+var CONFIG = BOOT.config || {};
+var VIEW = (BOOT.initial && BOOT.initial.view) || 'home';
+var STATE = { collection: null, filters: { q: '', group: '', status: '' } };
+
+/* ------------------------------ ส่วนหัวและเมนู ------------------------------ */
+function applyConfig() {
+  document.title = CONFIG.school_name + ' — ' + CONFIG.system_title;
+  $('#schoolName').textContent = CONFIG.school_name;
+  $('#systemTitle').textContent = CONFIG.system_title;
+  $('#contactNote').textContent = CONFIG.contact_note || '';
+  if (CONFIG.school_logo) {
+    $('#brandLogo').innerHTML = '';
+    $('#brandLogo').appendChild(el('img', { src: CONFIG.school_logo, alt: 'ตราโรงเรียน' }));
+  }
+
+  var nav = $('#mainNav');
+  nav.innerHTML = '';
+  [['home', 'รายการชำระเงิน'], ['check', 'ตรวจสอบสลิป'], ['my', 'ประวัติของฉัน']].forEach(function (item) {
+    nav.appendChild(el('a', {
+      href: '#', class: VIEW === item[0] ? 'active' : '',
+      text: item[1],
+      onclick: function (e) { e.preventDefault(); go(item[0]); }
+    }));
+  });
+  $('#brandLink').addEventListener('click', function (e) { e.preventDefault(); go('home'); });
+  $('#themeBtn').addEventListener('click', toggleTheme);
+}
+
+function go(view, params) {
+  VIEW = view;
+  STATE.params = params || {};
+  applyConfig();
+  render();
+  window.scrollTo(0, 0);
+}
+
+function render() {
+  var main = $('#main');
+  main.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังโหลด...</div>';
+  if (VIEW === 'collection') return renderCollection(STATE.params.id || (BOOT.initial && BOOT.initial.id));
+  if (VIEW === 'check') return renderCheck(STATE.params.ref || (BOOT.initial && BOOT.initial.ref));
+  if (VIEW === 'my') return renderMy();
+  return renderHome();
+}
+
+function showError(e) {
+  var main = $('#main');
+  main.innerHTML = '';
+  main.appendChild(el('div', { class: 'card' }, [
+    el('div', { class: 'alert alert-error' }, [e.message || 'เกิดข้อผิดพลาด']),
+    el('p', { style: 'margin-top:1rem' }, [
+      el('button', { class: 'btn', type: 'button', text: '← กลับหน้าแรก', onclick: function () { go('home'); } })
+    ])
+  ]));
+}
+
+/* ================================ หน้าแรก ================================ */
+function renderHome(preloaded) {
+  var main = $('#main');
+  var draw = function (collections) {
+    main.innerHTML = '';
+    main.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+      el('h1', { style: 'margin-bottom:.35rem', text: 'รายการจัดเก็บที่เปิดรับชำระ' }),
+      el('p', { class: 'muted', style: 'margin:0' }, [
+        'เลือกรายการที่ต้องการชำระ จากนั้นค้นหาชื่อของท่านในตาราง แล้วกดปุ่ม ',
+        el('span', { class: 'badge badge-unpaid', style: 'vertical-align:middle', text: 'ยังไม่ชำระ' }),
+        ' เพื่อแนบสลิปการโอนเงิน'
+      ])
+    ]));
+
+    if (!collections.length) {
+      main.appendChild(el('div', { class: 'card' }, [
+        emptyState('📭', 'ยังไม่มีรายการที่เปิดรับชำระ',
+          'กรุณาติดต่อฝ่ายการเงินของโรงเรียน หรือกลับมาตรวจสอบอีกครั้งภายหลัง')
+      ]));
+      return hideLoader();
+    }
+
+    var open = collections.filter(function (c) { return c.status === 'open'; });
+    var closed = collections.filter(function (c) { return c.status !== 'open'; });
+    if (open.length) main.appendChild(el('div', { class: 'grid grid-2' }, open.map(collectionCard)));
+    if (closed.length) {
+      main.appendChild(el('h2', { style: 'margin:1.75rem 0 .5rem;font-size:1.15rem', text: 'รายการที่ปิดรับชำระแล้ว' }));
+      main.appendChild(el('div', { class: 'grid grid-2' }, closed.map(collectionCard)));
+    }
+    hideLoader();
+  };
+
+  if (preloaded) return draw(preloaded);
+  if (BOOT.collections) { var c = BOOT.collections; BOOT.collections = null; return draw(c); }
+  call('apiPublicCollections', {}, { auth: false })
+    .then(function (d) { draw(d.collections); })
+    .catch(showError);
+}
+
+function collectionCard(c) {
+  var s = c.summary;
+  var pct = s.percent_paid || 0;
+  var overdue = c.due_date && new Date(String(c.due_date).substring(0, 10) + 'T23:59:59') < new Date() && c.status === 'open';
+
+  return el('a', {
+    class: 'card', href: '#', style: 'display:block;text-decoration:none;color:inherit',
+    onclick: function (e) { e.preventDefault(); go('collection', { id: c.id }); }
+  }, [
+    el('div', { class: 'row', style: 'gap:.4rem;margin-bottom:.2rem' }, [
+      el('span', { class: 'chip', text: c.code }),
+      el('span', { class: 'badge badge-' + c.status, text: c.status === 'open' ? 'เปิดรับชำระ' : 'ปิดรับชำระ' }),
+      overdue ? el('span', { class: 'badge badge-unpaid', text: 'เลยกำหนดชำระ' }) : null
+    ]),
+    el('h3', { style: 'margin:.25rem 0 .1rem', text: c.name }),
+    c.description ? el('p', { class: 'small muted', style: 'margin:0', text: c.description }) : null,
+    el('div', { class: 'grid grid-4', style: 'gap:.6rem;margin:.75rem 0' }, [
+      miniStat('ผู้ต้องชำระ', s.total_members + ' คน'),
+      miniStat('ชำระแล้ว', s.count_paid + ' คน', 'var(--green-600)'),
+      miniStat('รอตรวจสอบ', s.count_pending + ' คน', 'var(--amber-600)'),
+      miniStat('ยังไม่ชำระ', (s.count_unpaid + s.count_rejected) + ' คน', 'var(--red-600)')
+    ]),
+    el('div', { class: 'progress' }, [el('span', { style: 'width:' + Math.min(100, pct) + '%' })]),
+    el('div', { class: 'row-between small muted', style: 'margin-top:.45rem' }, [
+      el('span', { text: 'เก็บได้ ' + money(s.total_paid) + ' / ' + money(s.total_due) + ' บาท (' + pct + '%)' }),
+      el('span', { class: 'bold', style: 'color:var(--brand-600)', text: 'ดูรายชื่อและแจ้งชำระ →' })
+    ]),
+    c.due_date ? el('div', { class: 'tiny muted', style: 'margin-top:.3rem', text: 'กำหนดชำระภายใน ' + thaiDate(c.due_date) }) : null
+  ]);
+}
+
+function miniStat(label, value, color) {
+  return el('div', { style: 'text-align:center;padding:.4rem;background:var(--surface-2);border-radius:10px' }, [
+    el('div', { class: 'tiny muted', text: label }),
+    el('div', { class: 'bold', style: 'font-size:1.05rem;' + (color ? 'color:' + color : ''), text: value })
+  ]);
+}
+
+function statCard(label, value, unit, cls) {
+  return el('div', { class: 'stat ' + (cls || '') }, [
+    el('div', { class: 'stat-label', text: label }),
+    el('div', { class: 'stat-value' }, [
+      String(value),
+      el('span', { style: 'font-size:.85rem;font-weight:600;color:var(--muted)', text: ' ' + unit })
+    ])
+  ]);
+}
+
+/* ========================= หน้าตารางผู้ต้องชำระ ========================= */
+function renderCollection(id, preloaded) {
+  if (!id) return go('home');
+  var draw = function (d) {
+    STATE.collection = d;
+    STATE.filters = { q: '', group: '', status: '' };
+    drawCollection();
+    hideLoader();
+  };
+  if (preloaded) return draw(preloaded);
+  if (BOOT.collection && String(BOOT.collection.collection.id) === String(id)) {
+    var c = BOOT.collection; BOOT.collection = null; return draw(c);
+  }
+  call('apiPublicCollection', { id: id }, { auth: false }).then(draw).catch(showError);
+}
+
+function drawCollection() {
+  var d = STATE.collection;
+  var c = d.collection;
+  var s = d.summary;
+  var main = $('#main');
+  main.innerHTML = '';
+
+  var isOpen = c.status === 'open';
+  var overdue = c.due_date && new Date(String(c.due_date).substring(0, 10) + 'T23:59:59') < new Date();
+
+  main.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+    el('div', { class: 'row', style: 'gap:.4rem;margin-bottom:.4rem' }, [
+      el('button', { class: 'btn btn-ghost btn-sm no-print', type: 'button', text: '← ทั้งหมด', onclick: function () { go('home'); } }),
+      el('span', { class: 'chip', text: c.code }),
+      el('span', { class: 'badge badge-' + c.status, text: isOpen ? 'เปิดรับชำระ' : 'ปิดรับชำระ' }),
+      (overdue && isOpen) ? el('span', { class: 'badge badge-unpaid', text: 'เลยกำหนดชำระแล้ว' }) : null
+    ]),
+    el('h1', { style: 'margin:.2rem 0', text: c.name }),
+    c.description ? el('p', { class: 'muted', style: 'margin:.2rem 0', text: c.description }) : null,
+    el('div', { class: 'row small muted', style: 'gap:1.1rem;margin-top:.4rem' }, [
+      c.fiscal_year ? el('span', { text: 'ปีการศึกษา ' + c.fiscal_year }) : null,
+      c.term ? el('span', { text: 'ภาคเรียนที่ ' + c.term }) : null,
+      c.due_date ? el('span', { text: 'กำหนดชำระภายใน ' + thaiDate(c.due_date) }) : null
+    ]),
+    d.items.length ? el('div', { style: 'margin-top:.9rem' }, [
+      el('div', { class: 'label', text: 'รายละเอียดกิจกรรมย่อยของการจัดเก็บ' }),
+      el('div', { class: 'table-wrap' }, [
+        el('table', { class: 'data' }, [
+          el('tbody', {}, d.items.map(function (it) {
+            return el('tr', {}, [
+              el('td', {}, [
+                el('span', { text: it.name }),
+                it.is_optional ? el('span', { class: 'chip', style: 'margin-inline-start:.4rem', text: 'เลือกได้' }) : null,
+                it.description ? el('div', { class: 'tiny muted', text: it.description }) : null
+              ]),
+              el('td', { class: 'num', text: money(it.amount) + ' บาท' })
+            ]);
+          }))
+        ])
+      ])
+    ]) : null
+  ]));
+
+  main.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+    statCard('ผู้ต้องชำระทั้งหมด', s.total_members, 'คน', ''),
+    statCard('ชำระแล้ว', s.count_paid, 'คน', 'is-green'),
+    statCard('รอตรวจสอบ', s.count_pending, 'คน', 'is-amber'),
+    statCard('ยังไม่ชำระ', s.count_unpaid + s.count_rejected, 'คน', 'is-red')
+  ]));
+
+  main.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+    el('div', { class: 'row-between', style: 'margin-bottom:.5rem' }, [
+      el('span', { class: 'small bold', text: 'ยอดที่เก็บได้ ' + money(s.total_paid) + ' จาก ' + money(s.total_due) + ' บาท' }),
+      el('span', { class: 'small muted', text: 'คงค้าง ' + money(s.total_outstanding) + ' บาท (' + s.percent_paid + '%)' })
+    ]),
+    el('div', { class: 'progress' }, [el('span', { style: 'width:' + Math.min(100, s.percent_paid) + '%' })])
+  ]));
+
+  if (d.list_hidden) {
+    main.appendChild(el('div', { class: 'card' }, [
+      el('div', { class: 'alert alert-info' }, ['ผู้ดูแลระบบปิดการแสดงรายชื่อสาธารณะไว้ กรุณาใช้เมนู "ประวัติของฉัน" เพื่อดูรายการที่ต้องชำระของท่าน']),
+      el('p', { style: 'margin-top:1rem' }, [
+        el('button', { class: 'btn btn-primary', type: 'button', text: 'เข้าสู่ประวัติของฉัน', onclick: function () { go('my'); } })
+      ])
+    ]));
+    return;
+  }
+
+  var card = el('section', { class: 'card card-pad-0' });
+  card.appendChild(el('div', { class: 'card-head no-print' }, [
+    el('h2', { style: 'font-size:1.1rem', text: 'รายชื่อผู้ต้องชำระ' }),
+    el('div', { class: 'row', style: 'gap:.5rem' }, [
+      el('span', { class: 'small muted', id: 'rowCount' }),
+      el('button', { class: 'btn btn-sm', type: 'button', text: '🖨 พิมพ์', onclick: function () { window.print(); } })
+    ])
+  ]));
+
+  card.appendChild(el('div', { class: 'board-filters no-print' }, [
+    el('div', { class: 'field' }, [
+      el('label', { for: 'searchBox', text: 'ค้นหา' }),
+      el('input', {
+        type: 'search', id: 'searchBox', placeholder: 'ชื่อ หรือรหัสสมาชิก...',
+        oninput: debounce(function (e) { STATE.filters.q = e.target.value; renderRows(); }, 200)
+      })
+    ]),
+    d.groups.length > 1 ? el('div', { class: 'field' }, [
+      el('label', { for: 'groupSel', text: 'กลุ่ม/ชั้น' }),
+      el('select', { id: 'groupSel', onchange: function (e) { STATE.filters.group = e.target.value; renderRows(); } },
+        [el('option', { value: '', text: 'ทุกกลุ่ม/ชั้น' })].concat(d.groups.map(function (g) {
+          return el('option', { value: String(g.id), text: g.name });
+        })))
+    ]) : null,
+    el('div', { class: 'field' }, [
+      el('label', { for: 'statusSel', text: 'สถานะ' }),
+      el('select', { id: 'statusSel', onchange: function (e) { STATE.filters.status = e.target.value; renderRows(); } }, [
+        el('option', { value: '', text: 'ทุกสถานะ' }),
+        el('option', { value: 'unpaid', text: 'ยังไม่ชำระ' }),
+        el('option', { value: 'pending', text: 'รอตรวจสอบ' }),
+        el('option', { value: 'paid', text: 'ชำระแล้ว' }),
+        el('option', { value: 'rejected', text: 'ไม่ผ่านการตรวจสอบ' })
+      ])
+    ])
+  ]));
+
+  card.appendChild(el('div', { class: 'table-wrap' }, [
+    el('table', { class: 'data cards' }, [
+      el('thead', {}, [el('tr', {}, [
+        el('th', { class: 'mid', style: 'width:60px', text: 'ลำดับ' }),
+        el('th', { text: 'รหัส' }),
+        el('th', { text: 'ชื่อ-สกุล' }),
+        el('th', { class: 'mid', text: 'กลุ่ม/ชั้น' }),
+        el('th', { class: 'num', text: 'ยอดที่ต้องชำระ' }),
+        el('th', { class: 'mid', text: 'สถานะ' }),
+        el('th', { class: 'mid no-print', style: 'width:180px', text: 'การแจ้งชำระ' })
+      ])]),
+      el('tbody', { id: 'boardBody' })
+    ])
+  ]));
+  main.appendChild(card);
+  renderRows();
+}
+
+function filteredRows() {
+  var d = STATE.collection;
+  var f = STATE.filters;
+  var rows = d.members;
+  if (f.group) {
+    var g = null;
+    for (var i = 0; i < d.groups.length; i++) if (String(d.groups[i].id) === f.group) g = d.groups[i].name;
+    rows = rows.filter(function (m) { return m.group_name === g; });
+  }
+  if (f.status) rows = rows.filter(function (m) { return m.status === f.status; });
+  if (f.q) {
+    var q = f.q.trim().toLowerCase();
+    rows = rows.filter(function (m) {
+      return String(m.name).toLowerCase().indexOf(q) >= 0 ||
+        String(m.member_code).toLowerCase().indexOf(q) >= 0 ||
+        String(m.group_name || '').toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  return rows;
+}
+
+function renderRows() {
+  var tbody = $('#boardBody');
+  if (!tbody) return;
+  var rows = filteredRows();
+  var counter = $('#rowCount');
+  if (counter) counter.textContent = 'แสดง ' + rows.length + ' จาก ' + STATE.collection.members.length + ' รายชื่อ';
+
+  tbody.innerHTML = '';
+  if (!rows.length) {
+    tbody.appendChild(el('tr', {}, [
+      el('td', { colspan: '7', class: 'empty', style: 'display:table-cell;text-align:center' }, [
+        el('span', { class: 'empty-icon', text: '🔍' }),
+        el('div', { text: 'ไม่พบรายชื่อที่ตรงกับเงื่อนไขการค้นหา' })
+      ])
+    ]));
+    return;
+  }
+
+  var isOpen = STATE.collection.collection.status === 'open';
+  rows.forEach(function (m, i) {
+    var meta = STATUS_META[m.status] || STATUS_META.unpaid;
+    var canPay = isOpen && ['unpaid', 'rejected', 'partial'].indexOf(m.status) >= 0;
+
+    tbody.appendChild(el('tr', {}, [
+      el('td', { class: 'mid mono', 'data-label': 'ลำดับ', text: String(i + 1) }),
+      el('td', { class: 'mono', 'data-label': 'รหัส', text: m.member_code }),
+      el('td', { 'data-label': 'ชื่อ-สกุล' }, [
+        el('span', { class: 'bold', text: m.name }),
+        (m.status === 'rejected' && m.last_reject_reason)
+          ? el('div', { class: 'tiny', style: 'color:var(--red-600)', text: 'เหตุผล: ' + m.last_reject_reason }) : null,
+        m.status === 'partial'
+          ? el('div', { class: 'tiny muted', text: 'ชำระแล้ว ' + money(m.paid_amount) + ' คงเหลือ ' + money(m.outstanding) + ' บาท' }) : null
+      ]),
+      el('td', { class: 'mid', 'data-label': 'กลุ่ม/ชั้น', text: m.group_name || '-' }),
+      el('td', { class: 'num', 'data-label': 'ยอดที่ต้องชำระ', text: money(m.amount_due) }),
+      el('td', { class: 'mid', 'data-label': 'สถานะ' }, [statusBadge(m.status, m.status_label)]),
+      el('td', { class: 'mid no-print cell-full', 'data-label': 'การแจ้งชำระ' }, [
+        el('button', {
+          class: 'btn btn-sm btn-status ' + meta.btn, type: 'button', text: meta.action,
+          onclick: function () { canPay ? openSubmit(m) : openInfo(m); }
+        })
+      ])
+    ]));
+  });
+}
+
+/* ========================== ป๊อปอัปแจ้งชำระเงิน ========================== */
+function openSubmit(member) {
+  call('apiPublicAssignment', { assignment_id: member.assignment_id }, { auth: false })
+    .then(function (detail) { buildSubmitModal(member, detail); })
+    .catch(function (e) { toast(e.message, 'error'); });
+}
+
+function buildSubmitModal(member, detail) {
+  var a = detail.assignment;
+  var needPin = detail.require_pin;
+  var maxMb = CONFIG.max_upload_mb || 5;
+  var form = el('form', { id: 'payForm', autocomplete: 'off' });
+
+  form.appendChild(el('div', { class: 'card', style: 'background:var(--surface-2);margin-bottom:1rem;padding:.9rem' }, [
+    el('dl', { class: 'kv' }, [
+      el('dt', { text: 'ชื่อ-สกุล' }), el('dd', { text: a.name }),
+      el('dt', { text: 'รหัสสมาชิก' }), el('dd', { class: 'mono', text: a.member_code }),
+      a.group_name ? el('dt', { text: 'กลุ่ม/ชั้น' }) : null,
+      a.group_name ? el('dd', { text: a.group_name }) : null,
+      el('dt', { text: 'ยอดที่ต้องชำระ' }),
+      el('dd', { style: 'color:var(--red-600);font-size:1.25rem;font-weight:800', text: money(a.outstanding) + ' บาท' })
+    ])
+  ]));
+
+  if (detail.items.length) {
+    form.appendChild(el('details', { class: 'card', style: 'margin-bottom:1rem;padding:.75rem .9rem' }, [
+      el('summary', { style: 'cursor:pointer;font-weight:700;font-size:.9rem', text: 'รายละเอียดที่ต้องชำระ (' + detail.items.length + ' รายการ)' }),
+      el('div', { class: 'table-wrap', style: 'margin-top:.5rem' }, [
+        el('table', { class: 'data' }, [
+          el('tbody', {}, detail.items.map(function (it) {
+            return el('tr', {}, [el('td', { text: it.name }), el('td', { class: 'num', text: money(it.amount) })]);
+          }))
+        ])
+      ])
+    ]));
+  }
+
+  // ช่องทางการโอน + QR พร้อมเพย์
+  var banks = STATE.collection.banks || [];
+  var qrBox = el('div', { id: 'qrBox', style: 'margin-top:.75rem' });
+  if (banks.length) {
+    var sel = el('select', { id: 'bankSel' }, banks.map(function (b) {
+      return el('option', { value: String(b.id), text: b.bank_name + ' • ' + b.account_number + ' (' + b.account_name + ')' });
+    }));
+    form.appendChild(el('div', { style: 'margin-bottom:1rem' }, [
+      el('div', { class: 'label', text: 'ช่องทางการโอนเงิน' }), sel, qrBox
+    ]));
+
+    var showQr = function () {
+      var bank = null;
+      for (var i = 0; i < banks.length; i++) if (String(banks[i].id) === sel.value) bank = banks[i];
+      qrBox.innerHTML = '';
+      if (!bank) return;
+      qrBox.appendChild(el('div', { class: 'small muted', style: 'margin-bottom:.35rem' }, [
+        el('span', { text: 'ชื่อบัญชี: ' + bank.account_name }),
+        bank.branch ? el('span', { text: ' • สาขา ' + bank.branch }) : null
+      ]));
+      if (!bank.has_promptpay) return;
+      qrBox.appendChild(el('div', { class: 'loading', style: 'padding:1rem' }, [el('span', { class: 'spinner' }), ' กำลังสร้าง QR...']));
+      call('apiPromptPay', { bank_id: bank.id, amount: a.outstanding }, { auth: false })
+        .then(function (r) {
+          renderQr(qrBox, r.payload, r.bank.account_name + ' • ' + money(r.amount) + ' บาท');
+        })
+        .catch(function () { qrBox.innerHTML = ''; });
+    };
+    sel.addEventListener('change', showQr);
+    setTimeout(showQr, 30);
+  }
+
+  form.appendChild(el('div', { class: 'field' }, [
+    el('label', { class: 'req', for: 'slipFile', text: 'แนบสลิปการโอนเงิน' }),
+    el('input', { type: 'file', id: 'slipFile', accept: 'image/*,application/pdf', required: true, capture: 'environment' }),
+    el('div', { class: 'hint', text: 'รองรับไฟล์รูปภาพ (JPG, PNG, HEIC) หรือ PDF ขนาดไม่เกิน ' + maxMb + ' MB — ถ่ายรูปจากมือถือได้ทันที' }),
+    el('div', { id: 'slipPreview', style: 'margin-top:.6rem' })
+  ]));
+
+  form.appendChild(el('div', { class: 'grid grid-2', style: 'gap:.75rem' }, [
+    el('div', { class: 'field', style: 'margin:0' }, [
+      el('label', { for: 'amountInput', text: 'จำนวนเงินที่โอน (บาท)' }),
+      el('input', {
+        type: 'number', id: 'amountInput', step: '0.01', min: '0',
+        value: String(a.outstanding), readonly: !a.allow_partial
+      }),
+      el('div', { class: 'hint', text: a.allow_partial ? 'รายการนี้ผ่อนชำระได้' : 'รายการนี้ต้องชำระเต็มจำนวน' })
+    ]),
+    el('div', { class: 'field', style: 'margin:0' }, [
+      el('label', { for: 'transferAt', text: 'วัน-เวลาที่โอน' }),
+      el('input', { type: 'datetime-local', id: 'transferAt', value: nowLocal() })
+    ])
+  ]));
+
+  form.appendChild(el('div', { class: 'field' }, [
+    el('label', { for: 'payerName', text: 'ชื่อผู้โอน' }),
+    el('input', { type: 'text', id: 'payerName', value: a.name, maxlength: '120' })
+  ]));
+
+  if (needPin) {
+    form.appendChild(el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'pinInput', text: 'รหัสสมาชิก (PIN) สำหรับยืนยันตัวตน' }),
+      el('input', { type: 'password', id: 'pinInput', inputmode: 'numeric', autocomplete: 'off', required: true, maxlength: '12', placeholder: '••••••' }),
+      el('div', { class: 'hint', text: 'หากลืมรหัส กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่' })
+    ]));
+  }
+
+  form.appendChild(el('div', { class: 'field' }, [
+    el('label', { for: 'noteInput', text: 'หมายเหตุ (ถ้ามี)' }),
+    el('textarea', { id: 'noteInput', rows: '2', maxlength: '500', style: 'min-height:60px' })
+  ]));
+
+  var errBox = el('div', { id: 'formErr', class: 'hidden' });
+  form.appendChild(errBox);
+
+  var submitBtn = el('button', { class: 'btn btn-primary btn-lg', type: 'submit', form: 'payForm', text: '✓ ยืนยันการแจ้งชำระเงิน' });
+  var m = modal({
+    title: 'แจ้งชำระเงิน', body: form, size: 'modal-lg',
+    footer: [
+      el('button', { class: 'btn', type: 'button', text: 'ยกเลิก', onclick: function () { m.close(); } }),
+      submitBtn
+    ]
+  });
+
+  $('#slipFile', form).addEventListener('change', function (e) {
+    var f = e.target.files[0];
+    var pv = $('#slipPreview', form);
+    pv.innerHTML = '';
+    if (!f) return;
+    if (f.size > maxMb * 1024 * 1024) {
+      pv.appendChild(el('div', { class: 'alert alert-error small' },
+        ['ไฟล์มีขนาด ' + fileSize(f.size) + ' เกิน ' + maxMb + ' MB กรุณาเลือกไฟล์ที่เล็กลง']));
+      e.target.value = '';
+      return;
+    }
+    pv.appendChild(el('div', { class: 'small muted', text: f.name + ' • ' + fileSize(f.size) }));
+    if (f.type.indexOf('image/') === 0) {
+      var url = URL.createObjectURL(f);
+      pv.appendChild(el('img', {
+        src: url, class: 'slip-frame', style: 'max-height:220px;margin-top:.4rem', alt: 'ตัวอย่างสลิป',
+        onload: function () { setTimeout(function () { URL.revokeObjectURL(url); }, 1000); }
+      }));
+    }
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    errBox.className = 'hidden';
+    var file = $('#slipFile', form).files[0];
+    if (!file) { showFormErr(errBox, 'กรุณาแนบสลิปการโอนเงิน'); return; }
+
+    busy(submitBtn, true, 'กำลังส่งข้อมูล...');
+    readFileBase64(file).then(function (b64) {
+      var bankSel = $('#bankSel', form);
+      return call('apiSubmitPayment', {
+        assignment_id: member.assignment_id,
+        slip_base64: b64,
+        slip_name: file.name,
+        amount: $('#amountInput', form).value,
+        transferred_at: $('#transferAt', form).value,
+        payer_name: $('#payerName', form).value,
+        note: $('#noteInput', form).value,
+        pin: needPin ? $('#pinInput', form).value : '',
+        bank_account_id: bankSel ? bankSel.value : ''
+      }, { auth: false });
+    }).then(function (r) {
+      m.close();
+      showSuccess(r);
+      call('apiPublicCollection', { id: STATE.collection.collection.id }, { auth: false })
+        .then(function (d) { STATE.collection = d; renderRows(); updateSummary(d); })
+        .catch(function () { /* รีเฟรชไม่สำเร็จไม่กระทบการแจ้งชำระ */ });
+    }).catch(function (err) {
+      showFormErr(errBox, err.message);
+      errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }).then(function () { busy(submitBtn, false); });
+  });
+}
+
+function updateSummary(d) {
+  // วาดหน้าใหม่ทั้งหมดเพื่อให้ตัวเลขสรุปตรงกับข้อมูลล่าสุด
+  var savedFilters = STATE.filters;
+  drawCollection();
+  STATE.filters = savedFilters;
+  var sb = $('#searchBox'); if (sb) sb.value = savedFilters.q;
+  var gs = $('#groupSel'); if (gs) gs.value = savedFilters.group;
+  var ss = $('#statusSel'); if (ss) ss.value = savedFilters.status;
+  renderRows();
+}
+
+function showFormErr(box, msg) {
+  box.className = 'alert alert-error';
+  box.textContent = msg;
+}
+
+function nowLocal() {
+  var d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+function showSuccess(r) {
+  var body = el('div', { class: 'center' }, [
+    el('div', { style: 'font-size:3.5rem;line-height:1', text: '✅' }),
+    el('h3', { style: 'margin:.5rem 0 .2rem;color:var(--green-700)', text: 'แจ้งชำระเงินเรียบร้อยแล้ว' }),
+    el('p', { class: 'muted small', style: 'margin:0 0 1rem', text: r.message }),
+    el('div', { class: 'card', style: 'background:var(--brand-50);border-color:var(--brand-200)' }, [
+      el('div', { class: 'small bold', style: 'color:var(--brand-700)', text: 'เลขอ้างอิงสำหรับตรวจสอบและดูสลิปภายหลัง' }),
+      el('div', { class: 'ref-code', text: r.ref_code }),
+      el('button', {
+        class: 'btn btn-sm', type: 'button', text: '📋 คัดลอกเลขอ้างอิง',
+        onclick: function () {
+          copyText(r.ref_code).then(function (ok) {
+            toast(ok ? 'คัดลอกเลข ' + r.ref_code + ' แล้ว' : 'คัดลอกไม่สำเร็จ กรุณาจดเลขไว้', ok ? 'success' : 'warn');
+          });
+        }
+      })
+    ]),
+    el('div', { class: 'alert alert-warn', style: 'margin-top:1rem;text-align:right' }, [
+      el('div', {}, [
+        el('strong', { text: 'กรุณาบันทึกเลขอ้างอิงนี้ไว้ ' }),
+        'ท่านสามารถใช้เลข 4 หลักนี้ตรวจสอบสถานะและเรียกดูสลิปที่แนบไว้ได้ตลอดเวลาที่เมนู "ตรวจสอบสลิป"'
+      ])
+    ]),
+    el('dl', { class: 'kv', style: 'margin-top:1rem;text-align:right' }, [
+      el('dt', { text: 'ผู้ชำระ' }), el('dd', { text: r.member_name + ' (' + r.member_code + ')' }),
+      el('dt', { text: 'รายการ' }), el('dd', { text: r.collection_name }),
+      el('dt', { text: 'จำนวนเงิน' }), el('dd', { text: money(r.amount) + ' บาท' }),
+      el('dt', { text: 'สถานะ' }),
+      el('dd', {}, [statusBadge(r.status === 'approved' ? 'paid' : 'pending', r.status_label)])
+    ])
+  ]);
+
+  var m = modal({
+    title: 'บันทึกการแจ้งชำระสำเร็จ', body: body,
+    footer: [
+      el('button', { class: 'btn', type: 'button', text: '🖨 พิมพ์หลักฐาน', onclick: function () { window.print(); } }),
+      el('button', { class: 'btn', type: 'button', text: 'ตรวจสอบสถานะ', onclick: function () { m.close(); go('check', { ref: r.ref_code }); } }),
+      el('button', { class: 'btn btn-primary', type: 'button', text: 'เสร็จสิ้น', onclick: function () { m.close(); } })
+    ]
+  });
+}
+
+function openInfo(member) {
+  call('apiPublicAssignment', { assignment_id: member.assignment_id }, { auth: false })
+    .then(function (detail) {
+      var a = detail.assignment;
+      var body = el('div', {}, [
+        el('dl', { class: 'kv' }, [
+          el('dt', { text: 'ชื่อ-สกุล' }), el('dd', { text: a.name }),
+          el('dt', { text: 'รหัสสมาชิก' }), el('dd', { class: 'mono', text: a.member_code }),
+          el('dt', { text: 'ยอดที่ต้องชำระ' }), el('dd', { text: money(a.net_due) + ' บาท' }),
+          el('dt', { text: 'ชำระแล้ว' }), el('dd', { text: money(a.paid_amount) + ' บาท' }),
+          el('dt', { text: 'สถานะ' }), el('dd', {}, [statusBadge(a.status, a.status_label)])
+        ]),
+        el('hr', { class: 'divider' }),
+        el('div', { class: 'label', text: 'ประวัติการแจ้งชำระ' })
+      ]);
+
+      if (!detail.payments.length) {
+        body.appendChild(el('p', { class: 'muted small', text: 'ยังไม่มีการแจ้งชำระ' }));
+      } else {
+        body.appendChild(el('div', { class: 'table-wrap' }, [
+          el('table', { class: 'data' }, [
+            el('thead', {}, [el('tr', {}, [
+              el('th', { text: 'เลขอ้างอิง' }), el('th', { class: 'num', text: 'จำนวนเงิน' }),
+              el('th', { text: 'วันที่แจ้ง' }), el('th', { class: 'mid', text: 'สถานะ' }), el('th', {})
+            ])]),
+            el('tbody', {}, detail.payments.map(function (p) {
+              return el('tr', {}, [
+                el('td', { class: 'mono bold', text: p.ref_code }),
+                el('td', { class: 'num', text: money(p.amount) }),
+                el('td', { class: 'small', text: thaiDate(p.created_at, { short: true, withTime: true }) }),
+                el('td', { class: 'mid' }, [
+                  statusBadge(p.status === 'approved' ? 'paid' : p.status === 'rejected' ? 'rejected' : 'pending', p.status_label),
+                  p.reject_reason ? el('div', { class: 'tiny', style: 'color:var(--red-600)', text: p.reject_reason }) : null
+                ]),
+                el('td', {}, [p.has_slip ? el('button', {
+                  class: 'btn btn-sm', type: 'button', text: 'ดูสลิป',
+                  onclick: function () { m.close(); go('check', { ref: p.ref_code }); }
+                }) : null])
+              ]);
+            }))
+          ])
+        ]));
+      }
+
+      var m = modal({
+        title: 'ข้อมูลการชำระเงิน — ' + a.name, body: body,
+        footer: [el('button', { class: 'btn btn-primary', type: 'button', text: 'ปิด', onclick: function () { m.close(); } })]
+      });
+    })
+    .catch(function (e) { toast(e.message, 'error'); });
+}
+
+/* ========================== หน้าตรวจสอบสลิป ========================== */
+function renderCheck(initialRef) {
+  var main = $('#main');
+  main.innerHTML = '';
+  main.style.maxWidth = '760px';
+
+  var form = el('form', { id: 'checkForm', autocomplete: 'off' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'refInput', text: 'เลขอ้างอิง' }),
+      el('input', {
+        type: 'text', id: 'refInput', class: 'pin-input', inputmode: 'numeric',
+        maxlength: '12', placeholder: '0000', required: true, 'aria-label': 'เลขอ้างอิง 4 หลัก'
+      })
+    ]),
+    el('button', { class: 'btn btn-primary btn-block btn-lg', type: 'submit', id: 'checkBtn', text: 'ตรวจสอบสถานะ' })
+  ]);
+
+  main.appendChild(el('section', { class: 'card no-print', style: 'margin-bottom:1rem' }, [
+    el('h1', { style: 'margin-bottom:.25rem', text: 'ตรวจสอบสถานะและดูสลิป' }),
+    el('p', { class: 'muted small', style: 'margin-bottom:1rem',
+      text: 'กรอกเลขอ้างอิง 4 หลักที่ได้รับตอนแจ้งชำระเงิน เพื่อดูสถานะการตรวจสอบและเรียกดูสลิปที่แนบไว้' }),
+    form
+  ]));
+  main.appendChild(el('div', { id: 'checkResult' }));
+  hideLoader();
+
+  $('#refInput').addEventListener('input', function (e) { e.target.value = e.target.value.replace(/\D/g, ''); });
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    doCheck($('#refInput').value);
+  });
+
+  if (initialRef) {
+    $('#refInput').value = String(initialRef).replace(/\D/g, '');
+    doCheck($('#refInput').value);
+  }
+}
+
+function doCheck(ref) {
+  ref = String(ref || '').replace(/\D/g, '');
+  if (ref.length < 4) { toast('กรุณากรอกเลขอ้างอิงอย่างน้อย 4 หลัก', 'warn'); return; }
+  var box = $('#checkResult');
+  var btn = $('#checkBtn');
+  busy(btn, true, 'กำลังค้นหา...');
+  box.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังค้นหา...</div>';
+
+  call('apiLookupPayment', { ref: ref }, { auth: false })
+    .then(function (p) { drawCheckResult(p); })
+    .catch(function (e) {
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'card' }, [
+        el('div', { class: 'alert alert-error' }, [e.message]),
+        el('p', { class: 'small muted', style: 'margin:1rem 0 0' },
+          ['หากท่านจำเลขอ้างอิงไม่ได้ สามารถดูได้จากเมนู "ประวัติของฉัน" โดยใช้รหัสสมาชิกและรหัส PIN'])
+      ]));
+    })
+    .then(function () { busy(btn, false); });
+}
+
+var CHECK_STATUS = {
+  pending:  { key: 'pending',  icon: '⏳', color: 'var(--amber-600)', title: 'รอตรวจสอบ', desc: 'ผู้ดูแลระบบได้รับการแจ้งชำระของท่านแล้ว อยู่ระหว่างตรวจสอบสลิป' },
+  approved: { key: 'paid',     icon: '✅', color: 'var(--green-600)', title: 'ชำระแล้ว', desc: 'ตรวจสอบและยืนยันการชำระเงินเรียบร้อยแล้ว' },
+  rejected: { key: 'rejected', icon: '❌', color: 'var(--red-600)', title: 'ไม่ผ่านการตรวจสอบ', desc: 'กรุณาตรวจสอบเหตุผลและแจ้งชำระใหม่อีกครั้ง' }
+};
+
+function drawCheckResult(p) {
+  var st = CHECK_STATUS[p.status] || CHECK_STATUS.pending;
+  var box = $('#checkResult');
+  box.innerHTML = '';
+
+  var slipBox = el('div', { id: 'slipBox' });
+
+  box.appendChild(el('section', { class: 'card stack' }, [
+    el('div', { class: 'center' }, [
+      el('div', { style: 'font-size:3.2rem;line-height:1', text: st.icon }),
+      el('h2', { style: 'margin:.3rem 0 .1rem;color:' + st.color, text: st.title }),
+      el('p', { class: 'muted small', style: 'margin:0', text: st.desc }),
+      el('div', { style: 'margin-top:.7rem' }, [
+        el('span', { class: 'chip', style: 'font-size:1rem', text: 'เลขอ้างอิง ' + p.ref_code })
+      ])
+    ]),
+    el('hr', { class: 'divider' }),
+    el('dl', { class: 'kv' }, [
+      el('dt', { text: 'ผู้ชำระ' }), el('dd', { text: p.member.name + ' (' + p.member.member_code + ')' }),
+      p.member.group_name ? el('dt', { text: 'กลุ่ม/ชั้น' }) : null,
+      p.member.group_name ? el('dd', { text: p.member.group_name }) : null,
+      p.collection ? el('dt', { text: 'รายการจัดเก็บ' }) : null,
+      p.collection ? el('dd', { text: p.collection.name + ' (' + p.collection.code + ')' }) : null,
+      el('dt', { text: 'จำนวนเงิน' }),
+      el('dd', { style: 'font-size:1.15rem;font-weight:800', text: money(p.amount) + ' บาท' }),
+      p.payer_name ? el('dt', { text: 'ชื่อผู้โอน' }) : null,
+      p.payer_name ? el('dd', { text: p.payer_name }) : null,
+      p.transferred_at ? el('dt', { text: 'วัน-เวลาที่โอน' }) : null,
+      p.transferred_at ? el('dd', { text: thaiDate(p.transferred_at, { withTime: true }) }) : null,
+      el('dt', { text: 'วันที่แจ้งชำระ' }), el('dd', { text: thaiDate(p.submitted_at, { withTime: true }) }),
+      p.verified_at ? el('dt', { text: 'วันที่ตรวจสอบ' }) : null,
+      p.verified_at ? el('dd', { text: thaiDate(p.verified_at, { withTime: true }) }) : null,
+      p.verified_by_name ? el('dt', { text: 'ผู้ตรวจสอบ' }) : null,
+      p.verified_by_name ? el('dd', { text: p.verified_by_name }) : null,
+      p.receipt_no ? el('dt', { text: 'เลขที่ใบเสร็จ' }) : null,
+      p.receipt_no ? el('dd', { class: 'mono', text: p.receipt_no }) : null,
+      p.note ? el('dt', { text: 'หมายเหตุ' }) : null,
+      p.note ? el('dd', { text: p.note }) : null
+    ]),
+    p.reject_reason ? el('div', { class: 'alert alert-error' }, [
+      el('div', {}, [el('strong', { text: 'เหตุผลที่ไม่ผ่าน: ' }), p.reject_reason])
+    ]) : null,
+    slipBox,
+    el('div', { class: 'row no-print', style: 'margin-top:.5rem' }, [
+      el('button', { class: 'btn grow', type: 'button', text: '🖨 พิมพ์หลักฐาน', onclick: function () { window.print(); } }),
+      p.collection ? el('button', {
+        class: 'btn grow', type: 'button', text: 'ดูรายการจัดเก็บ',
+        onclick: function () { go('collection', { id: p.collection.id }); }
+      }) : null
+    ])
+  ]));
+
+  if (p.has_slip) {
+    slipBox.appendChild(el('div', { class: 'label', text: 'สลิปที่แนบไว้' }));
+    slipBox.appendChild(el('div', { class: 'loading', style: 'padding:1.5rem' }, [el('span', { class: 'spinner' }), ' กำลังโหลดสลิป...']));
+    call('apiLookupSlip', { ref: p.ref_code }, { auth: false })
+      .then(function (f) {
+        slipBox.innerHTML = '';
+        slipBox.appendChild(el('div', { class: 'label', text: 'สลิปที่แนบไว้' }));
+        if (f.mime === 'application/pdf') {
+          slipBox.appendChild(el('a', { class: 'btn btn-block', href: f.data_url, target: '_blank', rel: 'noopener', download: 'slip-' + p.ref_code + '.pdf', text: '📄 เปิดไฟล์ PDF สลิป' }));
+        } else {
+          slipBox.appendChild(el('img', { src: f.data_url, class: 'slip-frame', alt: 'สลิปเลขอ้างอิง ' + p.ref_code }));
+        }
+      })
+      .catch(function (e) {
+        slipBox.innerHTML = '';
+        slipBox.appendChild(el('div', { class: 'alert alert-warn small' }, [e.message]));
+      });
+  }
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* ========================== หน้าประวัติของฉัน ========================== */
+function renderMy() {
+  var main = $('#main');
+  main.innerHTML = '';
+  main.style.maxWidth = '960px';
+
+  var form = el('form', { id: 'myForm', autocomplete: 'off' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'codeInput', text: 'รหัสสมาชิก' }),
+      el('input', { type: 'text', id: 'codeInput', required: true, maxlength: '40', placeholder: 'เช่น M0001', autocomplete: 'username' })
+    ]),
+    CONFIG.require_member_pin ? el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'pinInput2', text: 'รหัส PIN' }),
+      el('input', { type: 'password', id: 'pinInput2', inputmode: 'numeric', maxlength: '12', placeholder: '••••••', autocomplete: 'current-password' }),
+      el('div', { class: 'hint', text: 'หากลืมรหัส PIN กรุณาติดต่อฝ่ายการเงินของโรงเรียนเพื่อขอรหัสใหม่' })
+    ]) : null,
+    el('button', { class: 'btn btn-primary btn-block btn-lg', type: 'submit', id: 'myBtn', text: 'ดูประวัติของฉัน' })
+  ]);
+
+  main.appendChild(el('section', { class: 'card no-print', style: 'max-width:520px;margin:0 auto 1rem' }, [
+    el('h1', { style: 'margin-bottom:.25rem', text: 'ประวัติการชำระเงินของฉัน' }),
+    el('p', { class: 'muted small', style: 'margin-bottom:1rem',
+      text: 'กรอกรหัสสมาชิกและรหัส PIN เพื่อดูรายการที่ต้องชำระและประวัติการชำระทั้งหมดของท่าน' }),
+    form
+  ]));
+  main.appendChild(el('div', { id: 'myResult' }));
+  hideLoader();
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var btn = $('#myBtn');
+    busy(btn, true, 'กำลังค้นหา...');
+    var pinEl = $('#pinInput2');
+    call('apiMemberHistory', {
+      member_code: $('#codeInput').value.trim(),
+      pin: pinEl ? pinEl.value : ''
+    }, { auth: false })
+      .then(function (d) {
+        drawMy(d);
+        if (pinEl) pinEl.value = '';
+      })
+      .catch(function (err) {
+        toast(err.message, 'error');
+        $('#myResult').innerHTML = '';
+      })
+      .then(function () { busy(btn, false); });
+  });
+}
+
+function drawMy(d) {
+  var box = $('#myResult');
+  var t = d.totals;
+  box.innerHTML = '';
+
+  box.appendChild(el('section', { class: 'card', style: 'margin-bottom:1rem' }, [
+    el('div', { class: 'row-between' }, [
+      el('div', {}, [
+        el('h2', { style: 'margin:0', text: d.member.name }),
+        el('div', { class: 'small muted' }, [
+          el('span', { class: 'mono', text: d.member.member_code }),
+          d.member.group_name ? el('span', { text: ' • ' + d.member.group_name }) : null
+        ])
+      ]),
+      el('button', { class: 'btn btn-sm no-print', type: 'button', text: '🖨 พิมพ์', onclick: function () { window.print(); } })
+    ])
+  ]));
+
+  box.appendChild(el('div', { class: 'grid grid-4', style: 'margin-bottom:1rem' }, [
+    statCard('รายการทั้งหมด', t.total_members, 'รายการ', ''),
+    statCard('ยอดที่ต้องชำระรวม', money(t.total_due), 'บาท', 'is-blue'),
+    statCard('ชำระแล้ว', money(t.total_paid), 'บาท', 'is-green'),
+    statCard('คงค้าง', money(t.total_outstanding), 'บาท', t.total_outstanding > 0 ? 'is-red' : 'is-green')
+  ]));
+
+  var card = el('section', { class: 'card card-pad-0' }, [
+    el('div', { class: 'card-head' }, [el('h3', { style: 'font-size:1.05rem', text: 'รายการทั้งหมด' })])
+  ]);
+
+  if (!d.items.length) {
+    card.appendChild(emptyState('📭', 'ยังไม่มีรายการที่ต้องชำระ'));
+  } else {
+    card.appendChild(el('div', { class: 'table-wrap' }, [
+      el('table', { class: 'data cards' }, [
+        el('thead', {}, [el('tr', {}, [
+          el('th', { text: 'รายการจัดเก็บ' }),
+          el('th', { class: 'mid', text: 'กำหนดชำระ' }),
+          el('th', { class: 'num', text: 'ยอดที่ต้องชำระ' }),
+          el('th', { class: 'num', text: 'ชำระแล้ว' }),
+          el('th', { class: 'mid', text: 'สถานะ' }),
+          el('th', { class: 'mid no-print' })
+        ])]),
+        el('tbody', {}, d.items.map(function (r) {
+          return el('tr', {}, [
+            el('td', { 'data-label': 'รายการ' }, [
+              el('div', { class: 'bold', text: r.collection_name }),
+              el('div', { class: 'tiny muted mono', text: r.collection_code })
+            ]),
+            el('td', { class: 'mid small', 'data-label': 'กำหนดชำระ', text: r.due_date ? thaiDate(r.due_date, { short: true }) : '-' }),
+            el('td', { class: 'num', 'data-label': 'ยอดที่ต้องชำระ', text: money(r.amount_due) }),
+            el('td', { class: 'num', 'data-label': 'ชำระแล้ว', text: money(r.paid_amount) }),
+            el('td', { class: 'mid', 'data-label': 'สถานะ' }, [statusBadge(r.status, r.status_label)]),
+            el('td', { class: 'mid no-print cell-full', 'data-label': '' }, [
+              ['unpaid', 'rejected', 'partial'].indexOf(r.status) >= 0
+                ? el('button', { class: 'btn btn-sm btn-red', type: 'button', text: 'ไปแจ้งชำระ', onclick: function () { go('collection', { id: r.collection_id }); } })
+                : (r.latest_ref
+                  ? el('button', { class: 'btn btn-sm', type: 'button', text: 'ดูสลิป (' + r.latest_ref + ')', onclick: function () { go('check', { ref: r.latest_ref }); } })
+                  : null)
+            ])
+          ]);
+        })),
+        el('tfoot', {}, [el('tr', {}, [
+          el('td', { colspan: '2', text: 'รวมทั้งสิ้น' }),
+          el('td', { class: 'num', text: money(t.total_due) }),
+          el('td', { class: 'num', text: money(t.total_paid) }),
+          el('td', { colspan: '2', class: 'mid', text: 'คงค้าง ' + money(t.total_outstanding) + ' บาท' })
+        ])])
+      ])
+    ]));
+  }
+  box.appendChild(card);
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* --------------------------------- เริ่มต้น --------------------------------- */
+applyConfig();
+if (BOOT.initial && BOOT.initial.view === 'collection' && BOOT.initial.id) {
+  VIEW = 'collection';
+  STATE.params = { id: BOOT.initial.id };
+} else if (BOOT.initial && BOOT.initial.view === 'check') {
+  VIEW = 'check';
+  STATE.params = { ref: BOOT.initial.ref };
+} else if (BOOT.initial && BOOT.initial.view === 'my') {
+  VIEW = 'my';
+  STATE.params = {};
+} else {
+  VIEW = 'home';
+  STATE.params = {};
+}
+applyConfig();
+render();
+</script>
+</body>
+</html>

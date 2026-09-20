@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<?!= include('Styles') ?>
+</head>
+<body>
+
+<div class="gas-loading" id="gasLoading">
+  <span class="spinner"></span>
+  <div class="muted small">กำลังโหลดระบบผู้ดูแล...</div>
+</div>
+
+<div id="root"></div>
+
+<?!= include('QrCode') ?>
+<?!= include('Common') ?>
+
+<script>
+'use strict';
+var BOOT = <?= BOOT ?>;
+var CONFIG = BOOT.config || {};
+var ADMIN = { user: null, pendingCount: 0, current: '', params: {} };
+var ROLE_LABEL = { superadmin: 'ผู้ดูแลระบบสูงสุด', admin: 'ผู้ดูแลระบบ', viewer: 'ผู้ดูรายงาน' };
+
+function canWrite() { return ADMIN.user && ADMIN.user.role !== 'viewer'; }
+function isSuper() { return ADMIN.user && ADMIN.user.role === 'superadmin'; }
+function needWrite() {
+  if (canWrite()) return false;
+  toast('บัญชีของท่านเป็น "ผู้ดูรายงาน" จึงแก้ไขข้อมูลไม่ได้', 'warn');
+  return true;
+}
+
+function pageHead(title, sub, actions) {
+  return el('div', { class: 'page-head' }, [
+    el('div', {}, [el('h1', { text: title }), sub ? el('div', { class: 'sub', text: sub }) : null]),
+    (actions && actions.length) ? el('div', { class: 'row no-print', style: 'gap:.5rem' }, actions) : null
+  ]);
+}
+
+function statCard(label, value, unit, cls, sub) {
+  return el('div', { class: 'stat ' + (cls || '') }, [
+    el('div', { class: 'stat-label', text: label }),
+    el('div', { class: 'stat-value' }, [
+      String(value), el('span', { style: 'font-size:.8rem;font-weight:600;color:var(--muted)', text: ' ' + unit })
+    ]),
+    sub ? el('div', { class: 'stat-sub', text: sub }) : null
+  ]);
+}
+
+function pager(info, onGo) {
+  if (!info || info.pages <= 1) return null;
+  var box = el('div', { class: 'pager' });
+  function mk(label, page, disabled, active) {
+    return el('button', {
+      class: 'btn btn-sm' + (active ? ' btn-primary' : ''), type: 'button', text: label,
+      disabled: disabled || false, onclick: function () { onGo(page); }
+    });
+  }
+  box.appendChild(mk('« แรก', 1, info.page === 1));
+  box.appendChild(mk('‹ ก่อน', info.page - 1, info.page === 1));
+  var from = Math.max(1, info.page - 2);
+  var to = Math.min(info.pages, from + 4);
+  for (var p = from; p <= to; p++) box.appendChild(mk(String(p), p, false, p === info.page));
+  box.appendChild(mk('ถัดไป ›', info.page + 1, info.page === info.pages));
+  box.appendChild(mk('สุดท้าย »', info.pages, info.page === info.pages));
+  box.appendChild(el('span', { class: 'small muted', style: 'margin-inline-start:.5rem', text: 'ทั้งหมด ' + info.total + ' รายการ' }));
+  return box;
+}
+
+/* ============================== หน้าเข้าสู่ระบบ ============================== */
+function renderLogin(message) {
+  var root = $('#root');
+  root.innerHTML = '';
+  hideLoader();
+
+  var form = el('form', { id: 'loginForm' }, [
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'u', text: 'ชื่อผู้ใช้ หรืออีเมล' }),
+      el('input', { type: 'text', id: 'u', required: true, autocomplete: 'username', autocapitalize: 'none' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'p', text: 'รหัสผ่าน' }),
+      el('input', { type: 'password', id: 'p', required: true, autocomplete: 'current-password' })
+    ]),
+    el('div', { id: 'loginErr', class: 'hidden' }),
+    el('button', { class: 'btn btn-primary btn-block btn-lg', type: 'submit', id: 'loginBtn', text: 'เข้าสู่ระบบ' })
+  ]);
+
+  var logo = el('div', { class: 'login-logo', text: '🏫' });
+  if (CONFIG.school_logo) { logo.innerHTML = ''; logo.appendChild(el('img', { src: CONFIG.school_logo, alt: '' })); }
+
+  root.appendChild(el('div', { class: 'login-page' }, [
+    el('div', { class: 'login-card' }, [
+      logo,
+      el('h1', { class: 'center', style: 'font-size:1.25rem;margin-bottom:.1rem', text: CONFIG.school_name }),
+      el('p', { class: 'center muted small', style: 'margin-bottom:1.25rem', text: 'ระบบผู้ดูแล — แจ้งชำระเงินตามวัตถุประสงค์การจัดเก็บ' }),
+      message ? el('div', { class: 'alert alert-info', style: 'margin-bottom:1rem' }, [message]) : null,
+      form,
+      el('div', { class: 'center', style: 'margin-top:1rem' }, [
+        el('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: 'ลืมรหัสผ่าน?', onclick: openForgot })
+      ])
+    ])
+  ]));
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var err = $('#loginErr');
+    err.className = 'hidden';
+    busy($('#loginBtn'), true, 'กำลังเข้าสู่ระบบ...');
+    call('login', { username: $('#u').value, password: $('#p').value }, { auth: false })
+      .then(function (r) {
+        setToken(r.token);
+        ADMIN.user = r.admin;
+        navigate(r.admin.must_change_pw ? 'profile' : 'dashboard');
+        if (r.admin.must_change_pw) toast('กรุณาเปลี่ยนรหัสผ่านก่อนใช้งาน', 'warn', 6000);
+      })
+      .catch(function (ex) {
+        err.className = 'alert alert-error';
+        err.textContent = ex.message;
+        busy($('#loginBtn'), false);
+      });
+  });
+}
+
+function openForgot() {
+  var form = el('form', { id: 'forgotForm' }, [
+    el('div', { class: 'alert alert-info', style: 'margin-bottom:1rem' }, [
+      'ระบบจะส่งลิงก์ตั้งรหัสผ่านใหม่ไปยัง ',
+      el('strong', { text: 'อีเมลของผู้ดูแลที่ลงทะเบียนไว้' }),
+      ' เท่านั้น (ลิงก์มีอายุ 30 นาที)'
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'fu', text: 'ชื่อผู้ใช้' }),
+      el('input', { type: 'text', id: 'fu', required: true, autocapitalize: 'none' })
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { class: 'req', for: 'fe', text: 'อีเมลของผู้ดูแลที่ลงทะเบียนไว้' }),
+      el('input', { type: 'email', id: 'fe', required: true, autocapitalize: 'none' })
+    ]),
+    el('div', { id: 'forgotMsg', class: 'hidden' })
+  ]);
+
+  var btn = el('button', { class: 'btn btn-primary', type: 'submit', form: 'forgotForm', text: 'ส่งลิงก์รีเซ็ตรหัสผ่าน' });
+  var m = modal({
+    title: 'ลืมรหัสผ่านผู้ดูแลระบบ', body: form, size: 'modal-sm',
+    footer: [el('button', { class: 'btn', type: 'button', text: 'ปิด', onclick: function () { m.close(); } }), btn]
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    busy(btn, true, 'กำลังส่ง...');
+    call('forgotPassword', { username: $('#fu').value, email: $('#fe').value }, { auth: false })
+      .then(function (r) {
+        var msg = $('#forgotMsg');
+        msg.className = 'alert alert-success';
+        msg.textContent = r.message;
+        if (btn.parentNode) btn.parentNode.removeChild(btn);
+      })
+      .catch(function (ex) {
+        var msg = $('#forgotMsg');
+        msg.className = 'alert alert-error';
+        msg.textContent = ex.message;
+        busy(btn, false);
+      });
+  });
+}
+
+function renderResetPassword(token) {
+  var root = $('#root');
+  root.innerHTML = '';
+  hideLoader();
+
+  var card = el('div', { class: 'login-card' }, [
+    el('div', { class: 'login-logo', text: '🔑' }),
+    el('h1', { class: 'center', style: 'font-size:1.2rem', text: 'ตั้งรหัสผ่านใหม่' }),
+    el('div', { id: 'resetBody' }, [el('div', { class: 'loading' }, [el('span', { class: 'spinner' }), ' กำลังตรวจสอบลิงก์...'])])
+  ]);
+  root.appendChild(el('div', { class: 'login-page' }, [card]));
+
+  call('checkResetToken', { token: token }, { auth: false }).then(function (r) {
+    var body = $('#resetBody');
+    body.innerHTML = '';
+    if (!r.valid) {
+      body.appendChild(el('div', { class: 'alert alert-error', style: 'margin:1rem 0' },
+        ['ลิงก์ไม่ถูกต้อง หมดอายุ หรือถูกใช้ไปแล้ว กรุณาขอลิงก์ใหม่อีกครั้ง']));
+      body.appendChild(el('button', { class: 'btn btn-primary btn-block', type: 'button', text: 'กลับหน้าเข้าสู่ระบบ', onclick: function () { renderLogin(); } }));
+      return;
+    }
+    var form = el('form', { id: 'resetForm' }, [
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'np', text: 'รหัสผ่านใหม่' }),
+        el('input', { type: 'password', id: 'np', required: true, minlength: '8', autocomplete: 'new-password' }),
+        el('div', { class: 'hint', text: 'อย่างน้อย 8 ตัวอักษร ประกอบด้วยตัวอักษรและตัวเลข' })
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { class: 'req', for: 'cp', text: 'ยืนยันรหัสผ่านใหม่' }),
+        el('input', { type: 'password', id: 'cp', required: true, minlength: '8', autocomplete: 'new-password' })
+      ]),
+      el('div', { id: 'resetErr', class: 'hidden' }),
+      el('button', { class: 'btn btn-primary btn-block btn-lg', type: 'submit', id: 'resetBtn', text: 'บันทึกรหัสผ่านใหม่' })
+    ]);
+    body.appendChild(form);
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      busy($('#resetBtn'), true, 'กำลังบันทึก...');
+      call('resetPassword', { token: token, password: $('#np').value, confirm_password: $('#cp').value }, { auth: false })
+        .then(function () { renderLogin('ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว กรุณาเข้าสู่ระบบด้วยรหัสผ่านใหม่'); })
+        .catch(function (ex) {
+          var err = $('#resetErr');
+          err.className = 'alert alert-error';
+          err.textContent = ex.message;
+          busy($('#resetBtn'), false);
+        });
+    });
+  }).catch(function (e) {
+    $('#resetBody').innerHTML = '';
+    $('#resetBody').appendChild(el('div', { class: 'alert alert-error' }, [e.message]));
+  });
+}
+
+/* ================================ โครงหน้า ================================ */
+var NAV = [
+  { group: 'ภาพรวม', items: [
+    { path: 'dashboard', icon: '📊', label: 'แดชบอร์ด' },
+    { path: 'payments', icon: '🧾', label: 'ตรวจสอบการชำระ', badge: true }
+  ]},
+  { group: 'การจัดเก็บ', items: [
+    { path: 'collections', icon: '📋', label: 'รายการจัดเก็บ' },
+    { path: 'members', icon: '👥', label: 'สมาชิก' },
+    { path: 'groups', icon: '🏷️', label: 'กลุ่ม/ชั้นเรียน' }
+  ]},
+  { group: 'รายงาน', items: [
+    { path: 'reports', icon: '📈', label: 'รายงานและส่งออก' },
+    { path: 'audit', icon: '📜', label: 'บันทึกกิจกรรม' }
+  ]},
+  { group: 'ตั้งค่า', items: [
+    { path: 'settings', icon: '⚙️', label: 'ตั้งค่าระบบ' },
+    { path: 'users', icon: '🔐', label: 'ผู้ดูแลระบบ', superOnly: true },
+    { path: 'profile', icon: '👤', label: 'บัญชีของฉัน' }
+  ]}
+];
+
+function renderShell() {
+  var root = $('#root');
+  root.innerHTML = '';
+  hideLoader();
+
+  var logo = el('div', { class: 'sidebar-logo', id: 'sbLogo', text: '🏫' });
+  if (CONFIG.school_logo) { logo.innerHTML = ''; logo.appendChild(el('img', { src: CONFIG.school_logo, alt: '' })); }
+
+  var sidebar = el('aside', { class: 'sidebar', id: 'sidebar' }, [
+    el('div', { class: 'sidebar-head' }, [
+      logo,
+      el('div', { style: 'min-width:0;flex:1' }, [
+        el('div', { class: 'sidebar-title', text: CONFIG.school_name }),
+        el('div', { class: 'sidebar-sub', text: 'ระบบผู้ดูแล' })
+      ]),
+      el('button', { class: 'sidebar-close', type: 'button', 'aria-label': 'ปิดเมนู', html: '&times;', onclick: closeSidebar })
+    ]),
+    el('nav', { class: 'sidebar-nav', id: 'sidebarNav' }),
+    el('div', { class: 'sidebar-foot' }, [
+      el('div', { class: 'user-chip' }, [
+        el('div', { class: 'avatar', text: String(ADMIN.user.full_name || ADMIN.user.username || '?').trim().charAt(0) }),
+        el('div', { style: 'min-width:0;flex:1' }, [
+          el('div', { class: 'small bold', style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap', text: ADMIN.user.full_name }),
+          el('div', { class: 'tiny muted', text: ROLE_LABEL[ADMIN.user.role] || ADMIN.user.role })
+        ])
+      ]),
+      el('div', { class: 'row', style: 'gap:.35rem' }, [
+        el('button', { class: 'btn btn-sm grow', type: 'button', text: '🌗 ธีม', onclick: toggleTheme }),
+        el('button', { class: 'btn btn-sm grow', type: 'button', text: '🔗 หน้าผู้ใช้', onclick: openPublicSite })
+      ]),
+      el('button', { class: 'btn btn-sm btn-block', style: 'margin-top:.35rem', type: 'button', text: '🚪 ออกจากระบบ', onclick: doLogout })
+    ])
+  ]);
+
+  var main = el('div', { class: 'admin-main' }, [
+    el('div', { class: 'topbar' }, [
+      el('button', { class: 'hamburger', type: 'button', 'aria-label': 'เปิดเมนู', text: '☰', onclick: toggleSidebar }),
+      el('div', { class: 'bold', style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', id: 'topTitle', text: 'ระบบผู้ดูแล' })
+    ]),
+    el('div', { class: 'admin-content', id: 'view' })
+  ]);
+
+  root.appendChild(el('div', { class: 'admin-shell' }, [
+    el('div', { class: 'sidebar-backdrop', id: 'sbBackdrop', onclick: toggleSidebar }),
+    sidebar, main
+  ]));
+
+  buildNav();
+  refreshPending();
+}
+
+function buildNav() {
+  var nav = $('#sidebarNav');
+  if (!nav) return;
+  nav.innerHTML = '';
+  NAV.forEach(function (grp) {
+    var items = grp.items.filter(function (i) { return !i.superOnly || isSuper(); });
+    if (!items.length) return;
+    nav.appendChild(el('div', { class: 'nav-group-label', text: grp.group }));
+    items.forEach(function (it) {
+      nav.appendChild(el('button', {
+        class: 'nav-item' + (ADMIN.current === it.path ? ' active' : ''), type: 'button',
+        onclick: function () { navigate(it.path); if (window.innerWidth <= 1024) closeSidebar(); }
+      }, [
+        el('span', { class: 'nav-icon', text: it.icon }),
+        el('span', { text: it.label }),
+        (it.badge && ADMIN.pendingCount > 0) ? el('span', { class: 'nav-count', text: String(ADMIN.pendingCount) }) : null
+      ]));
+    });
+  });
+}
+
+function toggleSidebar() {
+  var sb = $('#sidebar'), bd = $('#sbBackdrop');
+  if (!sb) return;
+  sb.classList.toggle('open');
+  bd.classList.toggle('show', sb.classList.contains('open'));
+}
+function closeSidebar() {
+  var sb = $('#sidebar');
+  if (sb) { sb.classList.remove('open'); $('#sbBackdrop').classList.remove('show'); }
+}
+
+function refreshPending() {
+  call('apiPayments', { status: 'pending', per_page: 10, page: 1 })
+    .then(function (r) { ADMIN.pendingCount = r.counts.pending; buildNav(); })
+    .catch(function () { /* ไม่สำคัญพอจะรบกวนผู้ใช้ */ });
+}
+
+function openPublicSite() {
+  call('apiWebAppUrl', {}, { auth: false })
+    .then(function (r) { if (r.url) openUrl(r.url); else toast('ยังไม่ได้เผยแพร่เว็บแอป', 'warn'); })
+    .catch(function () { toast('ไม่สามารถเปิดหน้าผู้ใช้ได้', 'error'); });
+}
+
+function doLogout() {
+  confirmDialog({ title: 'ออกจากระบบ', message: 'ต้องการออกจากระบบใช่หรือไม่?', confirmText: 'ออกจากระบบ' })
+    .then(function (yes) {
+      if (!yes) return;
+      call('logout', {}).catch(function () { /* ไม่ว่าผลลัพธ์อย่างไรก็ออกจากระบบฝั่งเบราว์เซอร์ */ })
+        .then(function () {
+          setToken('');
+          ADMIN.user = null;
+          renderLogin('ออกจากระบบเรียบร้อยแล้ว');
+        });
+    });
+}
+
+/* ================================ เส้นทาง ================================ */
+var ROUTES = {};
+function route(path, fn, opts) { ROUTES[path] = { render: fn, opts: opts || {} }; }
+
+function navigate(path, params) {
+  ADMIN.current = path;
+  ADMIN.params = params || {};
+  if (!$('#view')) renderShell();
+  buildNav();
+
+  var title = 'ระบบผู้ดูแล';
+  NAV.forEach(function (g) { g.items.forEach(function (i) { if (i.path === path) title = i.label; }); });
+  var tt = $('#topTitle');
+  if (tt) tt.textContent = title;
+  document.title = title + ' — ระบบผู้ดูแล';
+
+  var view = $('#view');
+  view.innerHTML = '<div class="loading"><span class="spinner"></span> กำลังโหลด...</div>';
+  window.scrollTo(0, 0);
+
+  var def = ROUTES[path];
+  if (!def) {
+    view.innerHTML = '';
+    view.appendChild(el('div', { class: 'card' }, [emptyState('🔍', 'ไม่พบหน้าที่ต้องการ')]));
+    return;
+  }
+  if (def.opts.superOnly && !isSuper()) {
+    view.innerHTML = '';
+    view.appendChild(el('div', { class: 'card' }, [el('div', { class: 'alert alert-error' }, ['คุณไม่มีสิทธิ์เข้าถึงหน้านี้'])]));
+    return;
+  }
+
+  Promise.resolve()
+    .then(function () { return def.render(view, ADMIN.params); })
+    .catch(function (e) {
+      if (e && e.code === 'UNAUTHENTICATED') { ADMIN.user = null; renderLogin('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง'); return; }
+      view.innerHTML = '';
+      view.appendChild(el('div', { class: 'card' }, [
+        el('div', { class: 'alert alert-error' }, [e.message || 'เกิดข้อผิดพลาด']),
+        el('button', { class: 'btn', style: 'margin-top:1rem', type: 'button', text: 'ลองใหม่', onclick: function () { navigate(path, params); } })
+      ]));
+    });
+}
+function reload() { navigate(ADMIN.current, ADMIN.params); }
+
+<?!= include('AdminViews') ?>
+
+/* --------------------------------- เริ่มต้น --------------------------------- */
+(function boot() {
+  var init = BOOT.initial || {};
+  if (init.page === 'reset') { renderResetPassword(init.token || ''); return; }
+
+  var tok = getToken();
+  if (!tok) { renderLogin(); return; }
+
+  call('me', {})
+    .then(function (r) {
+      ADMIN.user = r.admin;
+      renderShell();
+      navigate(r.admin.must_change_pw ? 'profile' : 'dashboard');
+      if (r.admin.must_change_pw) toast('กรุณาเปลี่ยนรหัสผ่านก่อนใช้งาน', 'warn', 6000);
+    })
+    .catch(function () { setToken(''); renderLogin(); });
+})();
+</script>
+</body>
+</html>

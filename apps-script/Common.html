@@ -1,0 +1,402 @@
+<script>
+/* ===========================================================================
+ *  ตัวช่วยฝั่งเบราว์เซอร์ที่ใช้ร่วมกันทุกหน้า
+ * =========================================================================== */
+'use strict';
+
+/* --------------------------- เลือก/สร้าง element --------------------------- */
+function $(sel, root) { return (root || document).querySelector(sel); }
+function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+function el(tag, props, children) {
+  var node = document.createElement(tag);
+  props = props || {};
+  for (var k in props) {
+    if (!Object.prototype.hasOwnProperty.call(props, k)) continue;
+    var val = props[k];
+    if (val === null || val === undefined || val === false) continue;
+    if (k === 'class') node.className = val;
+    else if (k === 'html') node.innerHTML = val;
+    else if (k === 'text') node.textContent = val;
+    else if (k === 'dataset') { for (var d in val) if (Object.prototype.hasOwnProperty.call(val, d)) node.dataset[d] = val[d]; }
+    else if (k.indexOf('on') === 0 && typeof val === 'function') node.addEventListener(k.substring(2).toLowerCase(), val);
+    else node.setAttribute(k, val === true ? '' : String(val));
+  }
+  var list = [].concat(children || []);
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    if (c === null || c === undefined || c === false) continue;
+    node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);
+  }
+  return node;
+}
+
+/* ------------------------------ รูปแบบข้อมูล ------------------------------ */
+var TH_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+var TH_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+function toDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  var s = String(v).trim();
+  var d;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) d = new Date(s + 'T00:00:00');
+  else d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function thaiDate(v, opts) {
+  opts = opts || {};
+  var d = toDate(v);
+  if (!d) return '-';
+  var M = opts.short ? TH_MONTHS_SHORT : TH_MONTHS;
+  var out = d.getDate() + ' ' + M[d.getMonth()] + ' ' + (d.getFullYear() + 543);
+  if (opts.withTime) {
+    out += ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ' น.';
+  }
+  return out;
+}
+
+function money(n, decimals) {
+  var v = Number(n) || 0;
+  var d = (decimals === 0 || decimals === 1 || decimals === 2 || decimals === 3) ? decimals : 2;
+  var neg = v < 0;
+  var fixed = Math.abs(v).toFixed(d);
+  var parts = fixed.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-' : '') + parts.join('.');
+}
+
+function relativeTime(v) {
+  var d = toDate(v);
+  if (!d) return '-';
+  var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diff < 60) return 'เมื่อสักครู่';
+  if (diff < 3600) return Math.floor(diff / 60) + ' นาทีที่แล้ว';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' ชั่วโมงที่แล้ว';
+  if (diff < 604800) return Math.floor(diff / 86400) + ' วันที่แล้ว';
+  return thaiDate(v, { short: true });
+}
+
+function fileSize(bytes) {
+  var b = Number(bytes) || 0;
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+
+/** แปลงจำนวนเงินเป็นตัวอักษรไทย */
+function bahtText(amount) {
+  var NUM = ['ศูนย์','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'];
+  var POS = ['','สิบ','ร้อย','พัน','หมื่น','แสน','ล้าน'];
+  function readInt(str) {
+    str = String(str).replace(/^0+(?=\d)/, '');
+    if (str === '' || str === '0') return 'ศูนย์';
+    if (str.length > 7) {
+      var head = str.slice(0, str.length - 6), tail = str.slice(str.length - 6);
+      return readInt(head) + 'ล้าน' + (/^0+$/.test(tail) ? '' : readInt(tail));
+    }
+    var out = '';
+    for (var i = 0; i < str.length; i++) {
+      var dg = Number(str.charAt(i)), pos = str.length - i - 1;
+      if (dg === 0) continue;
+      if (pos === 1) out += dg === 1 ? 'สิบ' : dg === 2 ? 'ยี่สิบ' : NUM[dg] + 'สิบ';
+      else if (pos === 0 && dg === 1 && str.length > 1) out += 'เอ็ด';
+      else out += NUM[dg] + POS[pos];
+    }
+    return out;
+  }
+  var n = Math.round((Number(amount) || 0) * 100) / 100;
+  var baht = Math.floor(Math.abs(n));
+  var satang = Math.round((Math.abs(n) - baht) * 100);
+  return readInt(String(baht)) + 'บาท' + (satang === 0 ? 'ถ้วน' : readInt(String(satang)) + 'สตางค์');
+}
+
+/* ========================== เรียกฟังก์ชันฝั่งเซิร์ฟเวอร์ ========================== */
+
+var API_TOKEN = '';
+function setToken(t) {
+  API_TOKEN = t || '';
+  try { if (t) sessionStorage.setItem('cwk-token', t); else sessionStorage.removeItem('cwk-token'); }
+  catch (e) { /* บางเบราว์เซอร์ปิด sessionStorage ไว้ */ }
+}
+function getToken() {
+  if (API_TOKEN) return API_TOKEN;
+  try { API_TOKEN = sessionStorage.getItem('cwk-token') || ''; } catch (e) { API_TOKEN = ''; }
+  return API_TOKEN;
+}
+
+function ApiError(message, code) {
+  this.name = 'ApiError';
+  this.message = message;
+  this.code = code || 'ERROR';
+}
+ApiError.prototype = Object.create(Error.prototype);
+
+/**
+ * เรียกฟังก์ชันฝั่งเซิร์ฟเวอร์แบบ Promise
+ * แนบโทเคนให้อัตโนมัติ และแปลงผลลัพธ์ { ok, data, error } ให้ใช้งานง่าย
+ */
+function call(fnName, payload, opts) {
+  opts = opts || {};
+  var body = payload || {};
+  if (opts.auth !== false) body.token = getToken();
+
+  return new Promise(function (resolve, reject) {
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      reject(new ApiError('ไม่สามารถเชื่อมต่อกับระบบได้ กรุณาเปิดหน้านี้ผ่านลิงก์ของเว็บแอป'));
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res) { reject(new ApiError('ไม่ได้รับข้อมูลตอบกลับจากระบบ')); return; }
+        if (res.ok) { resolve(res.data); return; }
+        if (res.code === 'UNAUTHENTICATED') setToken('');
+        reject(new ApiError(res.error || 'เกิดข้อผิดพลาด', res.code));
+      })
+      .withFailureHandler(function (err) {
+        var msg = (err && err.message) ? String(err.message) : 'เชื่อมต่อระบบไม่สำเร็จ';
+        if (/Authorization is required|ต้องได้รับอนุญาต/i.test(msg)) {
+          msg = 'ระบบยังไม่ได้รับอนุญาตให้เข้าถึงข้อมูล กรุณาแจ้งผู้ติดตั้งระบบ';
+        } else if (/timeout|timed out/i.test(msg)) {
+          msg = 'ระบบตอบสนองช้ากว่าปกติ กรุณาลองใหม่อีกครั้ง';
+        } else {
+          msg = 'เชื่อมต่อระบบไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่';
+        }
+        reject(new ApiError(msg, 'NETWORK'));
+      })
+      [fnName](body);
+  });
+}
+
+/* ------------------------------ ข้อความแจ้งเตือน ------------------------------ */
+function toast(message, type, ms) {
+  var box = $('#toasts');
+  if (!box) { box = el('div', { id: 'toasts' }); document.body.appendChild(box); }
+  var t = el('div', { class: 'toast toast-' + (type || 'info'), role: 'status', text: message });
+  box.appendChild(t);
+  setTimeout(function () {
+    t.style.transition = 'opacity .25s, transform .25s';
+    t.style.opacity = '0';
+    t.style.transform = 'translateY(8px)';
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 260);
+  }, ms || 3800);
+}
+
+/* -------------------------------- ป๊อปอัป -------------------------------- */
+var openModals = 0;
+function modal(opts) {
+  opts = opts || {};
+  var backdrop = el('div', { class: 'modal-backdrop' });
+  var box = el('div', { class: 'modal ' + (opts.size || ''), role: 'dialog', 'aria-modal': 'true' });
+
+  function close() {
+    if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+    openModals = Math.max(0, openModals - 1);
+    if (!openModals) document.body.style.overflow = '';
+    document.removeEventListener('keydown', onKey);
+    if (opts.onClose) opts.onClose();
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+
+  if (opts.title) {
+    box.appendChild(el('div', { class: 'modal-head' }, [
+      el('h3', { text: opts.title }),
+      el('button', { class: 'modal-close', type: 'button', 'aria-label': 'ปิด', html: '&times;', onclick: close })
+    ]));
+  }
+  var bodyEl = el('div', { class: 'modal-body' });
+  if (typeof opts.body === 'string') bodyEl.innerHTML = opts.body;
+  else if (opts.body) bodyEl.appendChild(opts.body);
+  box.appendChild(bodyEl);
+
+  if (opts.footer) {
+    var f = el('div', { class: 'modal-foot' });
+    [].concat(opts.footer).forEach(function (b) { if (b) f.appendChild(b); });
+    box.appendChild(f);
+  }
+
+  backdrop.appendChild(box);
+  if (opts.closeOnBackdrop !== false) {
+    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) close(); });
+  }
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(backdrop);
+  document.body.style.overflow = 'hidden';
+  openModals++;
+
+  var focusable = box.querySelector('input:not([type=hidden]), select, textarea, button.btn-primary, button');
+  if (focusable) setTimeout(function () { focusable.focus(); }, 60);
+
+  return { close: close, box: box, body: bodyEl };
+}
+
+function confirmDialog(opts) {
+  opts = opts || {};
+  return new Promise(function (resolve) {
+    var done = false;
+    function finish(v) { if (done) return; done = true; m.close(); resolve(v); }
+    var m = modal({
+      title: opts.title || 'ยืนยันการทำรายการ',
+      size: 'modal-sm',
+      body: el('div', {}, [
+        typeof opts.message === 'string'
+          ? el('p', { text: opts.message, style: 'margin:0' })
+          : opts.message
+      ]),
+      footer: [
+        el('button', { class: 'btn', type: 'button', text: opts.cancelText || 'ยกเลิก', onclick: function () { finish(false); } }),
+        el('button', {
+          class: 'btn ' + (opts.danger ? 'btn-red' : 'btn-primary'), type: 'button',
+          text: opts.confirmText || 'ยืนยัน', onclick: function () { finish(true); }
+        })
+      ],
+      onClose: function () { finish(false); }
+    });
+  });
+}
+
+/* ----------------------------- สถานะปุ่มขณะทำงาน ----------------------------- */
+function busy(btn, on, label) {
+  if (!btn) return;
+  if (on) {
+    btn.dataset.label = btn.innerHTML;
+    btn.classList.add('is-loading');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:15px;height:15px;border-width:2px"></span> ' +
+      escapeHtml(label || 'กำลังทำงาน...');
+  } else {
+    btn.classList.remove('is-loading');
+    btn.disabled = false;
+    if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* --------------------------------- ธีม --------------------------------- */
+function initTheme() {
+  try {
+    var saved = localStorage.getItem('cwk-theme');
+    if (saved) document.documentElement.dataset.theme = saved;
+  } catch (e) { /* ไม่มีสิทธิ์เข้าถึง localStorage */ }
+}
+function toggleTheme() {
+  var cur = document.documentElement.dataset.theme;
+  var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var next = cur ? (cur === 'dark' ? 'light' : 'dark') : (sysDark ? 'light' : 'dark');
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('cwk-theme', next); } catch (e) { /* ignore */ }
+  return next;
+}
+
+/* ----------------------------- สถานะการชำระเงิน ----------------------------- */
+var STATUS_META = {
+  unpaid:   { label: 'ยังไม่ชำระ',        badge: 'badge-unpaid',   btn: 'btn-red',   action: 'แจ้งชำระเงิน' },
+  rejected: { label: 'ไม่ผ่านการตรวจสอบ', badge: 'badge-rejected', btn: 'btn-red',   action: 'แจ้งชำระใหม่' },
+  pending:  { label: 'รอตรวจสอบ',         badge: 'badge-pending',  btn: 'btn-amber', action: 'ดูสลิปที่แจ้ง' },
+  partial:  { label: 'ชำระบางส่วน',       badge: 'badge-partial',  btn: 'btn-blue',  action: 'ชำระส่วนที่เหลือ' },
+  paid:     { label: 'ชำระแล้ว',          badge: 'badge-paid',     btn: 'btn-green', action: 'ดูหลักฐาน' },
+  waived:   { label: 'ยกเว้นการชำระ',     badge: 'badge-waived',   btn: 'btn',       action: 'ยกเว้น' }
+};
+
+function statusBadge(status, label) {
+  var m = STATUS_META[status] || { label: label || status, badge: 'badge-draft' };
+  return el('span', { class: 'badge ' + m.badge, text: label || m.label });
+}
+
+/* --------------------------------- อื่น ๆ --------------------------------- */
+function debounce(fn, ms) {
+  var t;
+  return function () {
+    var args = arguments, self = this;
+    clearTimeout(t);
+    t = setTimeout(function () { fn.apply(self, args); }, ms || 320);
+  };
+}
+
+function copyText(text) {
+  return new Promise(function (resolve) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(function () { resolve(true); }, function () { resolve(fallback()); });
+        return;
+      }
+    } catch (e) { /* ใช้วิธีสำรอง */ }
+    resolve(fallback());
+
+    function fallback() {
+      try {
+        var ta = el('textarea', { style: 'position:fixed;opacity:0;top:0;left:0' });
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        ta.parentNode.removeChild(ta);
+        return ok;
+      } catch (e2) { return false; }
+    }
+  });
+}
+
+/** อ่านไฟล์เป็น base64 (สำหรับส่งสลิปไปเก็บใน Google Drive) */
+function readFileBase64(file) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var result = String(reader.result || '');
+      var comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.substring(comma + 1) : result);
+    };
+    reader.onerror = function () { reject(new Error('อ่านไฟล์ไม่สำเร็จ กรุณาเลือกไฟล์ใหม่')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** วาด QR พร้อมเพย์จากข้อมูล payload */
+function renderQr(container, payload, caption) {
+  container.innerHTML = '';
+  try {
+    var url = QR.toDataUrl(payload, 300, 3);
+    container.appendChild(el('div', { class: 'qr-box' }, [
+      el('div', { class: 'small bold', style: 'color:#0f172a;margin-bottom:.4rem', text: 'สแกนจ่ายด้วยพร้อมเพย์' }),
+      el('img', { src: url, class: 'qr-canvas', alt: 'QR พร้อมเพย์' }),
+      caption ? el('div', { class: 'tiny', style: 'color:#475569;margin-top:.35rem', text: caption }) : null
+    ]));
+  } catch (e) {
+    container.appendChild(el('div', { class: 'alert alert-warn small' }, ['สร้าง QR ไม่สำเร็จ กรุณาโอนตามเลขบัญชีที่แสดงไว้']));
+  }
+}
+
+/** เปิดลิงก์ในแท็บใหม่ (เว็บแอปอยู่ใน iframe จึงต้องใช้วิธีนี้) */
+function openUrl(url) {
+  try {
+    var a = el('a', { href: url, target: '_blank', rel: 'noopener' });
+    document.body.appendChild(a);
+    a.click();
+    a.parentNode.removeChild(a);
+  } catch (e) {
+    window.open(url, '_blank');
+  }
+}
+
+function emptyState(icon, title, sub, action) {
+  return el('div', { class: 'empty' }, [
+    el('span', { class: 'empty-icon', text: icon }),
+    el('h3', { style: 'margin:.2rem 0', text: title }),
+    sub ? el('p', { class: 'muted small', style: 'margin:0 0 1rem', text: sub }) : null,
+    action || null
+  ]);
+}
+
+function hideLoader() {
+  var l = $('#gasLoading');
+  if (l) l.classList.add('hide');
+}
+
+initTheme();
+</script>
