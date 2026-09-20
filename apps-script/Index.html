@@ -175,11 +175,13 @@ function collectionCard(c) {
       miniStat('ยังไม่ชำระ', (s.count_unpaid + s.count_rejected) + ' คน', 'var(--red-600)')
     ]),
     el('div', { class: 'progress' }, [el('span', { style: 'width:' + Math.min(100, pct) + '%' })]),
-    el('div', { class: 'row-between small muted', style: 'margin-top:.45rem' }, [
-      el('span', { text: 'เก็บได้ ' + money(s.total_paid) + ' / ' + money(s.total_due) + ' บาท (' + pct + '%)' }),
-      el('span', { class: 'bold', style: 'color:var(--brand-600)', text: 'ดูรายชื่อและแจ้งชำระ →' })
+    el('div', { class: 'small muted', style: 'margin-top:.45rem' }, [
+      el('span', { text: 'เก็บได้ ' + money(s.total_paid) + ' / ' + money(s.total_due) + ' บาท (' + pct + '%)' })
     ]),
-    c.due_date ? el('div', { class: 'tiny muted', style: 'margin-top:.3rem', text: 'กำหนดชำระภายใน ' + thaiDate(c.due_date) }) : null
+    c.due_date ? el('div', { class: 'tiny muted', style: 'margin-top:.3rem', text: 'กำหนดชำระภายใน ' + thaiDate(c.due_date) }) : null,
+    el('div', { class: 'card-cta' }, [
+      el('span', { class: 'btn btn-primary btn-block btn-lg', text: 'ดูรายชื่อและแจ้งชำระ →' })
+    ])
   ]);
 }
 
@@ -474,10 +476,22 @@ function buildSubmitModal(member, detail) {
     setTimeout(showQr, 30);
   }
 
+  // ไม่ใส่ capture เพื่อให้มือถือเปิดตัวเลือก "คลังรูปภาพ / ถ่ายรูป" ตามปกติ
+  // ถ้าใส่ capture มือถือจะเปิดกล้องทันทีโดยเลือกรูปที่ถ่ายไว้แล้วไม่ได้
+  var slipInput = el('input', {
+    type: 'file', id: 'slipFile', accept: 'image/*,application/pdf', required: true, class: 'file-input-hidden'
+  });
   form.appendChild(el('div', { class: 'field' }, [
     el('label', { class: 'req', for: 'slipFile', text: 'แนบสลิปการโอนเงิน' }),
-    el('input', { type: 'file', id: 'slipFile', accept: 'image/*,application/pdf', required: true, capture: 'environment' }),
-    el('div', { class: 'hint', text: 'รองรับไฟล์รูปภาพ (JPG, PNG, HEIC) หรือ PDF ขนาดไม่เกิน ' + maxMb + ' MB — ถ่ายรูปจากมือถือได้ทันที' }),
+    slipInput,
+    el('label', { class: 'file-picker', for: 'slipFile' }, [
+      el('span', { class: 'file-picker-icon', text: '🖼️' }),
+      el('span', { class: 'file-picker-text' }, [
+        el('span', { class: 'file-picker-title', text: 'เลือกรูปสลิปจากเครื่อง' }),
+        el('span', { class: 'file-picker-sub', id: 'slipFileName', text: 'ยังไม่ได้เลือกไฟล์' })
+      ])
+    ]),
+    el('div', { class: 'hint', text: 'เลือกรูปจากคลังภาพ หรือถ่ายรูปใหม่ก็ได้ — รองรับ JPG, PNG, HEIC หรือ PDF ขนาดไม่เกิน ' + maxMb + ' MB' }),
     el('div', { id: 'slipPreview', style: 'margin-top:.6rem' })
   ]));
 
@@ -529,15 +543,24 @@ function buildSubmitModal(member, detail) {
   $('#slipFile', form).addEventListener('change', function (e) {
     var f = e.target.files[0];
     var pv = $('#slipPreview', form);
+    var nameBox = $('#slipFileName', form);
+    var picker = form.querySelector('.file-picker');
     pv.innerHTML = '';
-    if (!f) return;
+    if (!f) {
+      if (nameBox) nameBox.textContent = 'ยังไม่ได้เลือกไฟล์';
+      if (picker) picker.classList.remove('has-file');
+      return;
+    }
     if (f.size > maxMb * 1024 * 1024) {
       pv.appendChild(el('div', { class: 'alert alert-error small' },
         ['ไฟล์มีขนาด ' + fileSize(f.size) + ' เกิน ' + maxMb + ' MB กรุณาเลือกไฟล์ที่เล็กลง']));
       e.target.value = '';
+      if (nameBox) nameBox.textContent = 'ยังไม่ได้เลือกไฟล์';
+      if (picker) picker.classList.remove('has-file');
       return;
     }
-    pv.appendChild(el('div', { class: 'small muted', text: f.name + ' • ' + fileSize(f.size) }));
+    if (nameBox) nameBox.textContent = f.name + ' • ' + fileSize(f.size);
+    if (picker) picker.classList.add('has-file');
     if (f.type.indexOf('image/') === 0) {
       var url = URL.createObjectURL(f);
       pv.appendChild(el('img', {

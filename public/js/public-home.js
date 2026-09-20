@@ -46,11 +46,13 @@ function collectionCard(c) {
     ]),
 
     el('div', { class: 'progress', title: `ชำระแล้ว ${pct}%` }, [el('span', { style: `width:${Math.min(100, pct)}%` })]),
-    el('div', { class: 'row-between small muted', style: 'margin-top:.45rem' }, [
+    el('div', { class: 'small muted', style: 'margin-top:.45rem' }, [
       el('span', { text: `เก็บได้ ${money(s.total_paid)} / ${money(s.total_due)} บาท (${pct}%)` }),
-      el('span', { class: 'bold', style: 'color:var(--brand-600)', text: 'ดูรายชื่อและแจ้งชำระ →' }),
     ]),
     c.due_date ? el('div', { class: 'tiny muted', style: 'margin-top:.3rem', text: `กำหนดชำระภายใน ${thaiDate(c.due_date)}` }) : null,
+    el('div', { class: 'card-cta' }, [
+      el('span', { class: 'btn btn-primary btn-block btn-lg', text: 'ดูรายชื่อและแจ้งชำระ →' }),
+    ]),
   ]);
 }
 

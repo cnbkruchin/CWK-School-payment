@@ -303,10 +303,19 @@ async function openSubmitModal(member) {
   form.appendChild(banksBox);
 
   /* ฟิลด์กรอก */
+  // ไม่ใส่ capture เพื่อให้มือถือเปิดตัวเลือก "คลังรูปภาพ / ถ่ายรูป" ตามปกติ
+  // ถ้าใส่ capture มือถือจะเปิดกล้องทันทีโดยเลือกรูปที่ถ่ายไว้แล้วไม่ได้
   form.appendChild(el('div', { class: 'field' }, [
     el('label', { class: 'req', for: 'slipFile', text: 'แนบสลิปการโอนเงิน' }),
-    el('input', { type: 'file', id: 'slipFile', name: 'slip', accept: 'image/*,application/pdf', required: true, capture: 'environment' }),
-    el('div', { class: 'hint', text: `รองรับไฟล์รูปภาพ (JPG, PNG, HEIC) หรือ PDF ขนาดไม่เกิน ${maxMb} MB — ถ่ายรูปจากมือถือได้ทันที` }),
+    el('input', { type: 'file', id: 'slipFile', name: 'slip', accept: 'image/*,application/pdf', required: true, class: 'file-input-hidden' }),
+    el('label', { class: 'file-picker', for: 'slipFile' }, [
+      el('span', { class: 'file-picker-icon', text: '🖼️' }),
+      el('span', { class: 'file-picker-text' }, [
+        el('span', { class: 'file-picker-title', text: 'เลือกรูปสลิปจากเครื่อง' }),
+        el('span', { class: 'file-picker-sub', id: 'slipFileName', text: 'ยังไม่ได้เลือกไฟล์' }),
+      ]),
+    ]),
+    el('div', { class: 'hint', text: `เลือกรูปจากคลังภาพ หรือถ่ายรูปใหม่ก็ได้ — รองรับ JPG, PNG, HEIC หรือ PDF ขนาดไม่เกิน ${maxMb} MB` }),
     el('div', { id: 'slipPreview', style: 'margin-top:.6rem' }),
   ]));
 
@@ -361,14 +370,22 @@ async function openSubmitModal(member) {
   $('#slipFile', form).addEventListener('change', (e) => {
     const f = e.target.files[0];
     const pv = $('#slipPreview', form);
+    const nameBox = $('#slipFileName', form);
+    const picker = form.querySelector('.file-picker');
+    const clearName = () => {
+      if (nameBox) nameBox.textContent = 'ยังไม่ได้เลือกไฟล์';
+      if (picker) picker.classList.remove('has-file');
+    };
     pv.innerHTML = '';
-    if (!f) return;
+    if (!f) { clearName(); return; }
     if (f.size > maxMb * 1024 * 1024) {
       pv.appendChild(el('div', { class: 'alert alert-error small' }, [`ไฟล์มีขนาด ${fileSize(f.size)} เกิน ${maxMb} MB กรุณาเลือกไฟล์ที่เล็กลง`]));
       e.target.value = '';
+      clearName();
       return;
     }
-    pv.appendChild(el('div', { class: 'small muted', text: `${f.name} • ${fileSize(f.size)}` }));
+    if (nameBox) nameBox.textContent = `${f.name} • ${fileSize(f.size)}`;
+    if (picker) picker.classList.add('has-file');
     if (f.type.startsWith('image/')) {
       const url = URL.createObjectURL(f);
       pv.appendChild(el('img', { src: url, class: 'slip-frame', style: 'max-height:220px;margin-top:.4rem', alt: 'ตัวอย่างสลิป', onload: () => setTimeout(() => URL.revokeObjectURL(url), 1000) }));

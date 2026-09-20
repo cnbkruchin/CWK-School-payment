@@ -386,6 +386,43 @@ legend { font-weight: 700; font-size: .9rem; padding: 0 .4rem; color: var(--ink-
 .staff-link { text-decoration: none; opacity: .75; }
 .staff-link:hover, .staff-link:focus-visible { opacity: 1; }
 
+/* ---------- ปุ่มเรียกร้องให้กดบนการ์ดรายการจัดเก็บ ---------- */
+.card-cta { margin-top: .85rem; }
+/* ทั้งการ์ดเป็นลิงก์อยู่แล้ว ให้คลิกทะลุปุ่มไปที่การ์ด แต่ยังตอบสนองตอนชี้เมาส์ */
+.card-cta .btn { pointer-events: none; transition: filter .15s, transform .15s; }
+a.card:hover .card-cta .btn { filter: brightness(1.08); }
+a.card:active .card-cta .btn { transform: translateY(1px); }
+
+/* ---------- ช่องเลือกไฟล์แบบปุ่มใหญ่ ---------- */
+.file-input-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.file-picker {
+  display: flex; align-items: center; gap: .75rem; width: 100%;
+  padding: .9rem 1rem; border: 2px dashed var(--line-2); border-radius: 12px;
+  background: var(--surface-2); cursor: pointer; text-align: start;
+  transition: border-color .15s, background .15s;
+}
+.file-picker:hover { border-color: var(--brand-500); background: var(--surface); }
+/* โฟกัสด้วยคีย์บอร์ด — เงาตกที่ตัวปุ่มเพราะ input ถูกซ่อนไว้ */
+.file-input-hidden:focus-visible + .file-picker {
+  border-color: var(--brand-500); box-shadow: 0 0 0 3px var(--brand-100);
+}
+.file-picker.has-file { border-style: solid; border-color: var(--green-500); background: var(--green-50); }
+.file-picker-icon { font-size: 1.75rem; line-height: 1; flex: none; }
+.file-picker-text { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.file-picker-title { font-weight: 700; font-size: 1.02rem; color: var(--ink); }
+.file-picker-sub {
+  font-size: .85rem; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-picker.has-file .file-picker-sub { color: var(--green-700); font-weight: 600; }
+@media (max-width: 720px) {
+  .file-picker { padding: 1rem; }
+  .file-picker-title { font-size: 1.05rem; }
+}
+
 /* --------------------------------- มือถือ --------------------------------- */
 @media (max-width: 720px) {
   body { font-size: 15.5px; }
