@@ -71,6 +71,59 @@ console.log('\n=== 1ข. การเข้ารหัสรหัสผ่า�
   ok('ตัวจำลองปฏิเสธลายเซ็น (Byte[],String) เหมือนของจริง', rejected);
 }
 
+console.log('\n=== 1ค. เบอร์โทรและตัวเลขที่ขึ้นต้นด้วยศูนย์ ===');
+{
+  // คอลัมน์ข้อความต้องถูกตั้งเป็น "ข้อความธรรมดา" ไม่งั้น Sheets จะแปลงเป็นตัวเลข
+  // แล้วเลข 0 นำหน้าหายไป (เบอร์โทร รหัส PIN เลขอ้างอิง เลขพร้อมเพย์)
+  const g0 = S.dbAll('Groups')[0];
+  const mm = S.dbInsert('Members', {
+    member_code: 'M9001', prefix: 'นาย', first_name: 'ทดสอบ', last_name: 'ศูนย์นำหน้า',
+    group_id: g0.id, phone: '0812345678', pin_plain: '012345', is_active: true
+  });
+  const rb = S.dbGet('Members', mm.id);
+  ok('เบอร์โทรเก็บครบ 10 หลัก ไม่เสียเลข 0 นำหน้า', rb.phone === '0812345678', rb.phone);
+  ok('รหัส PIN เก็บครบ 6 หลัก', rb.pin_plain === '012345', rb.pin_plain);
+
+  const bk = S.dbInsert('BankAccounts', {
+    bank_name: 'ทดสอบ', account_name: 'x', account_number: '1234567890',
+    promptpay_id: '0812345678', is_active: true
+  });
+  ok('เลขพร้อมเพย์ไม่เสียเลข 0 นำหน้า',
+    S.dbGet('BankAccounts', bk.id).promptpay_id === '0812345678');
+
+  // จัดรูปแบบเบอร์โทร
+  ok('เติม 0 ให้เบอร์มือถือ 9 หลัก', S.normalizePhone_('812345678') === '0812345678');
+  ok('เติม 0 ให้เบอร์บ้าน 8 หลัก', S.normalizePhone_('54123456') === '054123456');
+  ok('เบอร์ที่ถูกต้องอยู่แล้วไม่ถูกแก้', S.normalizePhone_('0812345678') === '0812345678');
+  ok('เบอร์ที่มีขีดคงรูปแบบเดิม', S.normalizePhone_('081-234-5678') === '081-234-5678');
+  ok('ค่าว่างยังเป็นค่าว่าง', S.normalizePhone_('') === '');
+  ok('ไม่แตะเลข 13 หลัก (บัตรประชาชน)', S.normalizePhone_('1234567890123') === '1234567890123');
+  ok('เติม 0 ให้รหัส PIN ที่สั้นไป', S.padCode_('12345', 6) === '012345');
+  ok('เติม 0 ให้เลขอ้างอิงที่สั้นไป', S.padCode_('12', 4) === '0012');
+
+  // ซ่อมข้อมูลเดิมที่เสียไปแล้ว
+  S.dbUpdate('Members', mm.id, { phone: '812345678', pin_plain: '12345' });
+  S.dbUpdate('BankAccounts', bk.id, { promptpay_id: '812345678' });
+  S.settingsSet({ school_phone: '54123456' });
+
+  const preview = S.repairTextColumns_(true);
+  ok('ตรวจสอบก่อนพบรายการที่ต้องแก้', preview.fixed >= 4, String(preview.fixed));
+  ok('ตรวจสอบก่อนยังไม่แก้ข้อมูลจริง', S.dbGet('Members', mm.id).phone === '812345678');
+
+  const done = S.repairTextColumns_(false);
+  ok('ดำเนินการแล้วแก้ข้อมูลครบ', done.fixed >= 4, String(done.fixed));
+  ok('เบอร์โทรสมาชิกถูกเติม 0 คืน', S.dbGet('Members', mm.id).phone === '0812345678');
+  ok('รหัส PIN ถูกเติม 0 คืน', S.dbGet('Members', mm.id).pin_plain === '012345');
+  ok('เลขพร้อมเพย์ถูกเติม 0 คืน', S.dbGet('BankAccounts', bk.id).promptpay_id === '0812345678');
+  ok('เบอร์โทรโรงเรียนถูกเติม 0 คืน', S.setting('school_phone') === '054123456');
+
+  const twice = S.repairTextColumns_(false);
+  ok('รันซ้ำแล้วไม่แก้อะไรเพิ่ม (ไม่เติม 0 ซ้ำซ้อน)', twice.fixed === 0, String(twice.fixed));
+
+  S.dbDelete('Members', mm.id);
+  S.dbDelete('BankAccounts', bk.id);
+}
+
 console.log('\n=== 2. เข้าสู่ระบบ ===');
 let r = S.login({ username: 'admin', password: 'wrong' });
 ok('รหัสผ่านผิดถูกปฏิเสธ', !r.ok && /ไม่ถูกต้อง/.test(r.error), r.error);

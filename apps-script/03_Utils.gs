@@ -266,6 +266,35 @@ function timingSafeEqual_(a, b) {
   return diff === 0;
 }
 
+/* --------------------------- เบอร์โทรและตัวเลขนำหน้าศูนย์ --------------------------- */
+
+/**
+ * จัดรูปแบบเบอร์โทรศัพท์ให้ครบตามมาตรฐานไทย
+ * เบอร์ที่เคยถูก Google Sheets แปลงเป็นตัวเลขจะเสียเลข 0 นำหน้าไป
+ *   812345678 (9 หลัก)  -> 0812345678  มือถือ 10 หลัก
+ *   54123456  (8 หลัก)  -> 054123456   เบอร์บ้าน 9 หลัก
+ * เบอร์ที่ขึ้นต้นด้วย 0 อยู่แล้ว หรือมีขีด/เว้นวรรค จะคงรูปแบบเดิมไว้
+ */
+function normalizePhone_(value) {
+  var raw = String(value === null || value === undefined ? '' : value).trim();
+  if (!raw) return '';
+  var digits = raw.replace(/\D/g, '');
+  if (!digits) return raw;
+  if (digits.charAt(0) === '0') return raw;
+  if (digits.length === 8 || digits.length === 9) return '0' + digits;
+  return raw;
+}
+
+/**
+ * เติมเลข 0 นำหน้าให้ครบตามความยาวที่กำหนด
+ * ใช้กับรหัสที่มีความยาวคงที่ เช่น รหัส PIN 6 หลัก และเลขอ้างอิง 4 หลัก
+ */
+function padCode_(value, len) {
+  var raw = String(value === null || value === undefined ? '' : value).trim();
+  if (!raw || !/^\d+$/.test(raw) || raw.length >= len) return raw;
+  return padStart_(raw, len, '0');
+}
+
 /* ------------------------------- สร้างรหัสต่าง ๆ ------------------------------- */
 
 /**

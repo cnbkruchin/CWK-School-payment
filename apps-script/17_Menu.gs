@@ -13,6 +13,8 @@ function onOpen() {
       .addItem('🔗 ดูลิงก์เว็บแอป', 'showWebAppLink')
       .addItem('🔑 ตั้งรหัสผ่านผู้ดูแลใหม่', 'resetAdminPasswordDialog')
       .addSeparator()
+      .addItem('📞 จัดรูปแบบเบอร์โทร / เติมเลข 0 นำหน้า', 'repairPhoneNumbers')
+      .addSeparator()
       .addItem('🧪 สร้างข้อมูลตัวอย่าง', 'seedDemoData')
       .addItem('🧹 ล้างแคชระบบ', 'clearSystemCache')
       .addItem('📊 สรุปสถานะระบบ', 'showSystemStatus')

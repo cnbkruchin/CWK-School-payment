@@ -67,6 +67,9 @@ function apiSaveSettings(payload) {
     }
     if (!touched.length) fail_('ไม่มีข้อมูลที่ต้องบันทึก');
 
+    // เบอร์โทรโรงเรียนเก็บเป็นข้อความ และเติมเลข 0 นำหน้าให้ครบตามมาตรฐานไทย
+    if (patch.school_phone !== undefined) patch.school_phone = normalizePhone_(patch.school_phone);
+
     if (patch.max_upload_mb !== undefined) {
       var mb = Number(patch.max_upload_mb);
       var maxAllowed = APP.MAX_SLIP_BYTES / 1024 / 1024;
@@ -131,7 +134,7 @@ function apiSaveBank(payload) {
     if (!accountName) fail_('กรุณาระบุชื่อบัญชี');
     if (!accountNumber) fail_('กรุณาระบุเลขที่บัญชี');
 
-    var promptpay = str_(payload.promptpay_id, 40).replace(/\D/g, '');
+    var promptpay = normalizePhone_(str_(payload.promptpay_id, 40).replace(/\D/g, ''));
     if (promptpay && !normalizePromptPay_(promptpay)) {
       fail_('เลขพร้อมเพย์ไม่ถูกต้อง (ต้องเป็นเบอร์โทร 10 หลัก, เลขประจำตัวประชาชน/นิติบุคคล 13 หลัก หรือ e-Wallet 15 หลัก)');
     }
@@ -271,7 +274,7 @@ function apiSaveUser(payload) {
 
         dbUpdate('Admins', uid, {
           email: email, full_name: fullName, role: role,
-          phone: str_(payload.phone, 40), is_active: isActive
+          phone: normalizePhone_(str_(payload.phone, 40)), is_active: isActive
         });
         audit_(admin, 'แก้ไขผู้ดูแลระบบ', { targetType: 'admin', targetId: uid, detail: existing.username });
         return { id: uid };
@@ -297,7 +300,7 @@ function apiSaveUser(payload) {
       var created = dbInsert('Admins', {
         username: username, email: email, full_name: fullName,
         password_hash: pw.hash, password_salt: pw.salt, role: role,
-        phone: str_(payload.phone, 40), is_active: true,
+        phone: normalizePhone_(str_(payload.phone, 40)), is_active: true,
         must_change_pw: payload.must_change_pw === undefined ? true : bool_(payload.must_change_pw),
         failed_attempts: 0
       });

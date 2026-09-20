@@ -11,6 +11,7 @@ const { requireAdmin, requireWrite, requireSuper } = require('../middleware/auth
 const { csrfProtect } = require('../middleware/security');
 const v = require('../utils/validate');
 const { logoUpload } = require('../middleware/upload');
+const { normalizePhone, padCode } = require('../utils/thai');
 
 const router = express.Router();
 router.use(requireAdmin, csrfProtect);
@@ -26,6 +27,72 @@ router.get('/', v.wrap((req, res) => {
   });
 }));
 
+/* ---------------- จัดรูปแบบเบอร์โทรและเติมเลข 0 นำหน้าที่หายไป ---------------- */
+
+const REPAIR_TARGETS = [
+  { table: 'members',       column: 'phone',        mode: 'phone', label: 'เบอร์โทรสมาชิก',        key: 'member_code' },
+  { table: 'admins',        column: 'phone',        mode: 'phone', label: 'เบอร์โทรผู้ดูแลระบบ',  key: 'username' },
+  { table: 'bank_accounts', column: 'promptpay_id', mode: 'phone', label: 'เลขพร้อมเพย์',          key: 'bank_name' },
+  { table: 'members',       column: 'pin_plain',    mode: 'pad6',  label: 'รหัส PIN สมาชิก',       key: 'member_code' },
+  { table: 'payments',      column: 'ref_code',     mode: 'pad4',  label: 'เลขอ้างอิงการแจ้งชำระ', key: 'ref_code' },
+];
+
+function repairValue(value, mode) {
+  if (mode === 'phone') return normalizePhone(value);
+  if (mode === 'pad6') return padCode(value, 6);
+  if (mode === 'pad4') return padCode(value, 4);
+  return String(value ?? '');
+}
+
+function repairPhoneData(dryRun) {
+  const report = { formatted: 0, fixed: 0, scanned: 0, details: [], samples: [] };
+
+  const run = db.transaction(() => {
+    for (const t of REPAIR_TARGETS) {
+      const rows = db.prepare(`SELECT id, ${t.key} AS k, ${t.column} AS v FROM ${t.table} WHERE ${t.column} IS NOT NULL AND ${t.column} <> ''`).all();
+      const upd = db.prepare(`UPDATE ${t.table} SET ${t.column} = ? WHERE id = ?`);
+      let n = 0;
+      for (const r of rows) {
+        report.scanned += 1;
+        const after = repairValue(r.v, t.mode);
+        if (String(after) === String(r.v)) continue;
+        if (!dryRun) upd.run(after, r.id);
+        n += 1;
+        if (report.samples.length < 12) {
+          report.samples.push({ table: t.label, key: String(r.k), before: String(r.v), after: String(after) });
+        }
+      }
+      report.fixed += n;
+      report.details.push({ label: t.label, count: n });
+    }
+
+    const phone = getAllSettings().school_phone;
+    if (phone) {
+      report.scanned += 1;
+      const fixed = normalizePhone(phone);
+      if (fixed !== String(phone)) {
+        if (!dryRun) setSetting('school_phone', fixed);
+        report.fixed += 1;
+        report.details.push({ label: 'เบอร์โทรโรงเรียน', count: 1 });
+        if (report.samples.length < 12) {
+          report.samples.push({ table: 'เบอร์โทรโรงเรียน', key: 'school_phone', before: String(phone), after: fixed });
+        }
+      }
+    }
+  });
+  run();
+  return report;
+}
+
+router.post('/repair-phones', requireSuper, v.wrap((req, res) => {
+  const dryRun = v.bool(req.body.dry_run);
+  const report = repairPhoneData(dryRun);
+  if (!dryRun) {
+    audit.log(req, 'จัดรูปแบบเบอร์โทรและเติมเลข 0 นำหน้า', { detail: { fixed: report.fixed } });
+  }
+  res.json(report);
+}));
+
 /* ------------------------------ บันทึกการตั้งค่า ------------------------------ */
 router.put('/', requireWrite, v.wrap((req, res) => {
   const patch = {};
@@ -36,6 +103,9 @@ router.put('/', requireWrite, v.wrap((req, res) => {
     patch[key] = typeof val === 'boolean' ? (val ? '1' : '0') : String(val).slice(0, 2000);
   }
   if (!Object.keys(patch).length) v.fail(400, 'ไม่มีข้อมูลที่ต้องบันทึก');
+
+  // เบอร์โทรโรงเรียนเก็บเป็นข้อความ และเติมเลข 0 นำหน้าให้ครบตามมาตรฐานไทย
+  if (patch.school_phone !== undefined) patch.school_phone = normalizePhone(patch.school_phone);
 
   const mb = Number(patch.max_upload_mb);
   if (patch.max_upload_mb !== undefined && (!Number.isFinite(mb) || mb < 1 || mb > 50)) {
@@ -85,7 +155,7 @@ router.post('/banks', requireWrite, v.wrap((req, res) => {
   if (!accountName) v.fail(400, 'กรุณาระบุชื่อบัญชี');
   if (!accountNumber) v.fail(400, 'กรุณาระบุเลขที่บัญชี');
 
-  const promptpayId = v.str(req.body.promptpay_id, 40).replace(/\D/g, '');
+  const promptpayId = normalizePhone(v.str(req.body.promptpay_id, 40).replace(/\D/g, ''));
   if (promptpayId && !promptpay.normalizeTarget(promptpayId)) {
     v.fail(400, 'เลขพร้อมเพย์ไม่ถูกต้อง (ต้องเป็นเบอร์โทร 10 หลัก, เลขบัตรประชาชน 13 หลัก หรือ e-Wallet 15 หลัก)');
   }
@@ -113,7 +183,7 @@ router.put('/banks/:id(\\d+)', requireWrite, v.wrap((req, res) => {
   if (!b) v.fail(404, 'ไม่พบบัญชีนี้');
 
   const promptpayId = req.body.promptpay_id !== undefined
-    ? v.str(req.body.promptpay_id, 40).replace(/\D/g, '')
+    ? normalizePhone(v.str(req.body.promptpay_id, 40).replace(/\D/g, ''))
     : b.promptpay_id;
   if (promptpayId && !promptpay.normalizeTarget(promptpayId)) v.fail(400, 'เลขพร้อมเพย์ไม่ถูกต้อง');
 

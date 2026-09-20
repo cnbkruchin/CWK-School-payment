@@ -156,12 +156,40 @@ function ensureSheet_(ss, table) {
     if (def.columns[c].width) sh.setColumnWidth(c + 1, def.columns[c].width);
   }
 
+  applyTextFormat_(sh, def);
+
   // ซ่อนชีตที่เก็บข้อมูลอ่อนไหวหรือข้อมูลระบบ
   if (table === 'Sessions' || table === 'PasswordResets') {
     try { sh.hideSheet(); } catch (e) { /* ซ่อนไม่ได้ก็ไม่เป็นไร */ }
   }
 
   return isNew;
+}
+
+/**
+ * ตั้งรูปแบบคอลัมน์ข้อความเป็น "ข้อความธรรมดา" (@)
+ *
+ * จำเป็นมาก: ถ้าปล่อยเป็นรูปแบบอัตโนมัติ Google Sheets จะแปลงข้อความที่เป็น
+ * ตัวเลขล้วนให้เป็นตัวเลข ทำให้เลข 0 นำหน้าหายไป เช่น
+ *   เบอร์โทร   0812345678 -> 812345678   (เหลือ 9 หลัก)
+ *   รหัส PIN   012345     -> 12345
+ *   เลขอ้างอิง 0123       -> 123
+ *   พร้อมเพย์  0812345678 -> 812345678   (QR ผิด)
+ */
+function applyTextFormat_(sh, def) {
+  var maxRows = sh.getMaxRows();
+  if (maxRows < 2) return;
+
+  // รวมคอลัมน์ข้อความที่อยู่ติดกันเป็นบล็อกเดียว เพื่อลดจำนวนครั้งที่เรียก Sheets
+  var start = -1;
+  for (var c = 0; c <= def.columns.length; c++) {
+    var isText = c < def.columns.length && def.columns[c].type === 'string';
+    if (isText && start < 0) start = c;
+    if (!isText && start >= 0) {
+      sh.getRange(2, start + 1, maxRows - 1, c - start).setNumberFormat('@');
+      start = -1;
+    }
+  }
 }
 
 function seedDefaultSettings_() {

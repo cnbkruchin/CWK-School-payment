@@ -11,6 +11,7 @@ const { importUpload } = require('../middleware/upload');
 const { requireAdmin, requireWrite } = require('../middleware/auth');
 const { csrfProtect } = require('../middleware/security');
 const { generatePin, generateMemberCode } = require('../utils/codes');
+const { normalizePhone } = require('../utils/thai');
 const v = require('../utils/validate');
 
 const router = express.Router();
@@ -115,7 +116,7 @@ router.post('/', requireWrite, v.wrap((req, res) => {
     .run({
       code, prefix: v.str(req.body.prefix, 40) || null, first, last,
       nick: v.str(req.body.nickname, 60) || null, gid: groupId,
-      phone: v.str(req.body.phone, 40) || null, email: email || null,
+      phone: normalizePhone(v.str(req.body.phone, 40)) || null, email: email || null,
       guardian: v.str(req.body.guardian, 160) || null, note: v.str(req.body.note, 500) || null,
       hash: bcrypt.hashSync(pin, PIN_ROUNDS), pin, sort: v.num(req.body.sort_order, 0),
     });
@@ -153,7 +154,7 @@ router.put('/:id(\\d+)', requireWrite, v.wrap((req, res) => {
     last: v.str(req.body.last_name, 120) || m.last_name,
     nick: req.body.nickname !== undefined ? v.str(req.body.nickname, 60) || null : m.nickname,
     gid: groupId,
-    phone: req.body.phone !== undefined ? v.str(req.body.phone, 40) || null : m.phone,
+    phone: req.body.phone !== undefined ? normalizePhone(v.str(req.body.phone, 40)) || null : m.phone,
     email: req.body.email !== undefined ? email || null : m.email,
     guardian: req.body.guardian !== undefined ? v.str(req.body.guardian, 160) || null : m.guardian,
     note: req.body.note !== undefined ? v.str(req.body.note, 500) || null : m.note,
@@ -341,7 +342,7 @@ router.post('/import', requireWrite, (req, res, next) => {
                       email = COALESCE(NULLIF(?,''), email), guardian = COALESCE(NULLIF(?,''), guardian),
                       note = COALESCE(NULLIF(?,''), note), updated_at = datetime('now')
                 WHERE id = ?`
-            ).run(r.prefix, r.first_name, r.last_name, groupId, r.phone, r.email, r.guardian, r.note, existing.id);
+            ).run(r.prefix, r.first_name, r.last_name, groupId, normalizePhone(r.phone), r.email, r.guardian, r.note, existing.id);
           }
           result.updated++;
           result.preview.push({ line: r.line, action: 'อัปเดต', member_code: existing.member_code, name: `${r.first_name} ${r.last_name}`, group: r.group_name });
@@ -355,7 +356,7 @@ router.post('/import', requireWrite, (req, res, next) => {
             `INSERT INTO members (member_code, prefix, first_name, last_name, group_id, phone, email,
                                   guardian, note, pin_hash, pin_plain)
              VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-          ).run(code, r.prefix || null, r.first_name, r.last_name, groupId, r.phone || null,
+          ).run(code, r.prefix || null, r.first_name, r.last_name, groupId, normalizePhone(r.phone) || null,
                 r.email || null, r.guardian || null, r.note || null, bcrypt.hashSync(pin, PIN_ROUNDS), pin);
           result.credentials.push({ member_code: code, full_name: `${r.prefix || ''}${r.first_name} ${r.last_name}`.trim(), pin, group: r.group_name || '' });
         }

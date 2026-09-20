@@ -9,6 +9,7 @@ const { csrfProtect } = require('../middleware/security');
 const { checkPasswordStrength } = require('./admin.auth');
 const { randomDigits } = require('../utils/codes');
 const v = require('../utils/validate');
+const { normalizePhone } = require('../utils/thai');
 
 const router = express.Router();
 router.use(requireAdmin, csrfProtect);
@@ -54,7 +55,7 @@ router.post('/', requireSuper, v.wrap((req, res) => {
        VALUES (?,?,?,?,?,?,?)`
     )
     .run(username, email, fullName, bcrypt.hashSync(password, 12), role,
-         v.str(req.body.phone, 40) || null, v.bool(req.body.must_change_pw) ? 1 : 0);
+         normalizePhone(v.str(req.body.phone, 40)) || null, v.bool(req.body.must_change_pw) ? 1 : 0);
 
   audit.log(req, 'เพิ่มผู้ดูแลระบบ', { targetType: 'admin', targetId: info.lastInsertRowid, detail: `${username} (${ROLE_LABEL[role]})` });
   res.status(201).json({ ok: true, id: info.lastInsertRowid, username, password: req.body.password ? undefined : password });
@@ -83,7 +84,7 @@ router.put('/:id(\\d+)', requireSuper, v.wrap((req, res) => {
   db.prepare(
     `UPDATE admins SET email=?, full_name=?, role=?, phone=?, is_active=?, updated_at=datetime('now') WHERE id=?`
   ).run(email, v.str(req.body.full_name, 160) || a.full_name, role,
-        req.body.phone !== undefined ? v.str(req.body.phone, 40) || null : a.phone, isActive, id);
+        req.body.phone !== undefined ? normalizePhone(v.str(req.body.phone, 40)) || null : a.phone, isActive, id);
 
   audit.log(req, 'แก้ไขผู้ดูแลระบบ', { targetType: 'admin', targetId: id, detail: a.username });
   res.json({ ok: true });

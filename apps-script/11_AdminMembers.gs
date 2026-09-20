@@ -139,7 +139,7 @@ function apiSaveMember(payload) {
           last_name: last,
           nickname: str_(payload.nickname, 60),
           group_id: groupId,
-          phone: str_(payload.phone, 40),
+          phone: normalizePhone_(str_(payload.phone, 40)),
           email: email,
           guardian: str_(payload.guardian, 160),
           note: str_(payload.note, 500),
@@ -166,7 +166,7 @@ function apiSaveMember(payload) {
         last_name: last,
         nickname: str_(payload.nickname, 60),
         group_id: groupId,
-        phone: str_(payload.phone, 40),
+        phone: normalizePhone_(str_(payload.phone, 40)),
         email: email,
         guardian: str_(payload.guardian, 160),
         note: str_(payload.note, 500),
@@ -491,7 +491,7 @@ function apiImportMembers(payload) {
               first_name: first,
               last_name: last,
               group_id: groupId && groupId > 0 ? groupId : existing.group_id,
-              phone: cell(row, 'phone') || existing.phone,
+              phone: normalizePhone_(cell(row, 'phone')) || existing.phone,
               email: cell(row, 'email') || existing.email,
               guardian: cell(row, 'guardian') || existing.guardian,
               note: cell(row, 'note') || existing.note
@@ -517,7 +517,7 @@ function apiImportMembers(payload) {
         toInsert.push({
           member_code: newCode, prefix: prefix, first_name: first, last_name: last,
           group_id: groupId && groupId > 0 ? groupId : null,
-          phone: cell(row, 'phone'), email: cell(row, 'email'),
+          phone: normalizePhone_(cell(row, 'phone')), email: cell(row, 'email'),
           guardian: cell(row, 'guardian'), note: cell(row, 'note'),
           pin_hash: h.hash, pin_salt: h.salt, pin_plain: pin,
           is_active: true, sort_order: 0

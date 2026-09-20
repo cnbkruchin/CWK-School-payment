@@ -44,7 +44,9 @@ class Range {
       const target = this.row - 1 + r;
       while (this.sheet._data.length <= target) this.sheet._data.push([]);
       const rowArr = this.sheet._data[target];
-      for (let c = 0; c < values[r].length; c++) rowArr[this.col - 1 + c] = values[r][c];
+      for (let c = 0; c < values[r].length; c++) {
+        rowArr[this.col - 1 + c] = coerceCell(values[r][c], this.sheet._formats[this.col + c]);
+      }
       for (let c = 0; c < rowArr.length; c++) if (rowArr[c] === undefined) rowArr[c] = '';
     }
     return this;
@@ -55,7 +57,10 @@ class Range {
   setFontColor() { return this; }
   setHorizontalAlignment() { return this; }
   setVerticalAlignment() { return this; }
-  setNumberFormat() { return this; }
+  setNumberFormat(fmt) {
+    for (let c = 0; c < this.numCols; c++) this.sheet._formats[this.col + c] = fmt;
+    return this;
+  }
   setWrap() { return this; }
   setBorder() { return this; }
   setFontSize() { return this; }
@@ -72,8 +77,25 @@ class Range {
 }
 
 /* --------------------------------- Sheet --------------------------------- */
+/**
+ * จำลองพฤติกรรมของ Google Sheets: ช่องที่รูปแบบเป็น "อัตโนมัติ" จะแปลงข้อความ
+ * ที่เป็นตัวเลขล้วนให้กลายเป็นตัวเลข ทำให้เลข 0 นำหน้าหายไป
+ * ตั้งรูปแบบเป็น '@' (ข้อความธรรมดา) จึงจะเก็บค่าตามที่ส่งมาทุกตัวอักษร
+ */
+function coerceCell(value, format) {
+  if (format === '@') return value;
+  if (typeof value !== 'string' || value === '') return value;
+  if (!/^-?\d+(\.\d+)?$/.test(value)) return value;
+  if (value.length > 15) return value;      // ยาวเกินความแม่นยำของตัวเลข Sheets จะเก็บเป็นข้อความ
+  return Number(value);
+}
+
 class Sheet {
-  constructor(name, parent) { this.name = name; this._data = []; this._parent = parent; this._frozen = 0; this._hidden = false; }
+  constructor(name, parent) {
+    this.name = name; this._data = []; this._parent = parent;
+    this._frozen = 0; this._hidden = false;
+    this._formats = {};   // เลขคอลัมน์ (เริ่มที่ 1) -> รูปแบบตัวเลข เช่น '@'
+  }
   getName() { return this.name; }
   setName(n) { this.name = n; return this; }
   getLastRow() {

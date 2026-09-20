@@ -118,6 +118,22 @@ route('settings', {
     }
     view.appendChild(bankCard);
 
+    /* ---------------- จัดรูปแบบเบอร์โทรและเติมเลข 0 นำหน้า ---------------- */
+    if (isSuper()) {
+      view.appendChild(el('section', { class: 'card', style: 'margin-top:1rem' }, [
+        el('h2', { style: 'font-size:1.05rem', text: '📞 จัดรูปแบบเบอร์โทรศัพท์' }),
+        el('p', { class: 'small muted', style: 'margin-top:0' }, [
+          'เติมเลข 0 นำหน้าที่หายไปคืนให้อัตโนมัติ ครอบคลุมเบอร์โทรสมาชิก เบอร์โทรผู้ดูแล ',
+          'เบอร์โทรโรงเรียน เลขพร้อมเพย์ รหัส PIN และเลขอ้างอิงการแจ้งชำระ',
+        ]),
+        el('div', { id: 'phoneFixResult', style: 'margin:.75rem 0' }),
+        el('div', { class: 'link-row' }, [
+          el('button', { class: 'btn', type: 'button', id: 'phonePreviewBtn', text: '🔍 ตรวจสอบก่อน', onclick: () => runPhoneFix(true) }),
+          el('button', { class: 'btn btn-primary', type: 'button', id: 'phoneFixBtn', text: '▶ ดำเนินการ', onclick: () => runPhoneFix(false) }),
+        ]),
+      ]));
+    }
+
     /* ---------------- ระบบและการสำรองข้อมูล ---------------- */
     const storage = await api('/api/admin/settings/storage');
     view.appendChild(el('section', { class: 'card', style: 'margin-top:1rem' }, [
@@ -215,6 +231,59 @@ async function removeLogo() {
     toast('ลบโลโก้แล้ว', 'success');
     handleRoute();
   } catch (e) { toast(e.message, 'error'); }
+}
+
+async function runPhoneFix(dryRun) {
+  const box = $('#phoneFixResult');
+  const btn = $(dryRun ? '#phonePreviewBtn' : '#phoneFixBtn');
+
+  if (!dryRun) {
+    const yes = await confirmDialog({
+      title: 'ดำเนินการจัดรูปแบบเบอร์โทร',
+      message: 'ระบบจะเติมเลข 0 นำหน้าที่หายไปคืนให้ทุกรายการ ต้องการดำเนินการหรือไม่?',
+      confirmText: 'ดำเนินการ',
+    });
+    if (!yes) return;
+  }
+
+  busy(btn, true, dryRun ? 'กำลังตรวจสอบ...' : 'กำลังดำเนินการ...');
+  try {
+    const rep = await api('/api/admin/settings/repair-phones', { method: 'POST', body: { dry_run: dryRun } });
+    box.innerHTML = '';
+    if (!rep.fixed) {
+      box.appendChild(el('div', { class: 'alert alert-success' },
+        [`ตรวจแล้ว ${rep.scanned} รายการ ทุกรายการอยู่ในรูปแบบที่ถูกต้องแล้ว`]));
+      return;
+    }
+    box.appendChild(el('div', { class: dryRun ? 'alert alert-warn' : 'alert alert-success' }, [
+      el('strong', { text: dryRun
+        ? `พบข้อมูลที่ต้องแก้ไข ${rep.fixed} รายการ (ยังไม่บันทึก)`
+        : `แก้ไขเรียบร้อย ${rep.fixed} รายการ` }),
+      el('div', { class: 'small', style: 'margin-top:.3rem', text: `จากทั้งหมด ${rep.scanned} รายการที่ตรวจ` }),
+    ]));
+    if (rep.samples && rep.samples.length) {
+      box.appendChild(el('div', { class: 'table-wrap', style: 'margin-top:.6rem' }, [
+        el('table', { class: 'data' }, [
+          el('thead', {}, [el('tr', {}, [
+            el('th', { text: 'ประเภท' }), el('th', { text: 'รายการ' }),
+            el('th', { text: 'ก่อน' }), el('th', { text: 'หลัง' }),
+          ])]),
+          el('tbody', {}, rep.samples.map((x) => el('tr', {}, [
+            el('td', { class: 'small', text: x.table }),
+            el('td', { class: 'mono small', text: x.key }),
+            el('td', { class: 'mono', style: 'color:var(--red-600)', text: x.before }),
+            el('td', { class: 'mono bold', style: 'color:var(--green-700)', text: x.after }),
+          ]))),
+        ]),
+      ]));
+    }
+    if (!dryRun) toast(`จัดรูปแบบเบอร์โทรเรียบร้อย ${rep.fixed} รายการ`, 'success');
+  } catch (e) {
+    box.innerHTML = '';
+    box.appendChild(el('div', { class: 'alert alert-error' }, [e.message]));
+  } finally {
+    busy(btn, false);
+  }
 }
 
 async function pruneLogs() {
